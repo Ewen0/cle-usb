@@ -1,7 +1,7 @@
 Cle Usb ![Cle Usb logo](./img/logo.png)
 =======
 <p align="center">
-![Cle Usb schema](./img/cle-usb.png)
+   <img src="https://github.com/Ewen0/cle-usb/blob/master/img/cle-usb.png?raw=true" alt="Cle Usb schema"/>
 </p>
 
 Benefits
