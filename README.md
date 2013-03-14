@@ -1,8 +1,8 @@
-Cle Usb
+Cle Usb ![Cle Usb logo](./img/logo.png)
 =======
-
-![Cle Usb logo](./img/logo.png)
+<p align="center">
 ![Cle Usb schema](./img/cle-usb.png)
+</p>
 
 Benefits
 ========
