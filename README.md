@@ -1,4 +1,4 @@
 Cle Usb
 =======
 
-![Cle Usb schema](./img/cle-usb.svg)
+![Cle Usb schema](./img/cle-usb.png)
