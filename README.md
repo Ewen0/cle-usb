@@ -1,12 +1,13 @@
 Cle Usb
 =======
 
+![Cle Usb logo](./img/logo.png)
 ![Cle Usb schema](./img/cle-usb.png)
 
 Benefits
 ========
 
-* The phone can be used with any computer since any computer/os contains keyboard drivers.
+* The phone can be used with any computer since any computer/os embeds keyboard drivers.
 
 Limitations
 ===========
