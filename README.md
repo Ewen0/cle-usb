@@ -22,7 +22,7 @@ The application is currently under development. Only the README and a [first ver
 
 References
 ----------
-[Exploiting Smart-Phone USB Connectivity For Fun And Profit](cs.gmu.edu/~astavrou/research/acsac10.pdf)
+[Exploiting Smart-Phone USB Connectivity For Fun And Profit](http://cs.gmu.edu/~astavrou/research/acsac10.pdf)
 
 Licence
 =======
