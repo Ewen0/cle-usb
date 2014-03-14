@@ -20,6 +20,10 @@ Status
 
 The application is currently under development. Only the README and a [first version of the GUI](https://github.com/Ewen0/cle-usb-cljs) is available on github right now.
 
+References
+----------
+[Exploiting Smart-Phone USB Connectivity For Fun And Profit](cs.gmu.edu/~astavrou/research/acsac10.pdf)
+
 Licence
 =======
 
