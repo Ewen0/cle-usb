@@ -63,7 +63,7 @@ any values for attr."
               db)))
 
 (defn get-list-passwords [db]
-  (->> (ds/q '[:find ?id ?label ?dragging ?width ?height ?sort-index
+  (->> (ds/q '[:find ?id ?label ?dragging ?sort-index
                :in $
                :where [?id :password/label ?label]
                [?id :state/dragging ?dragging]
@@ -71,12 +71,10 @@ any values for attr."
                [(com.ewen.cle-usb.data/maybe $ ?id :password/width nil) ?width]
                [(com.ewen.cle-usb.data/maybe $ ?id :password/height nil) ?height]]
              db)
-       (map (fn [[id label dragging width height sort-index]]
+       (map (fn [[id label dragging sort-index]]
               {:id          id
                :label       label
                :placeholder dragging
-               :width       width
-               :height      height
                :sort-index sort-index}))
        (sort-by :sort-index)
        vec))
@@ -167,15 +165,18 @@ any values for attr."
 
 
 ;Render data
-(defmulti get-render-data (fn [db] (get-current-view db)))
+#_(defmulti get-render-data (fn [db] (get-current-view db)))
 
-(defmethod get-render-data :home  [db]
+#_(defmethod get-render-data :home  [db]
   {:view :home :data (get-list-passwords db)})
 
-(defmethod get-render-data :new-password  [db]
+#_(defmethod get-render-data :new-password  [db]
   {:view :new-password :data {}})
 
-(set! get-render-data (memoize get-render-data [{}
+(defn get-render-data [db]
+  {:view :home :data (get-list-passwords db)})
+
+#_(set! get-render-data (memoize get-render-data [{}
                                                 identity
                                                 (fn [mem args] mem)
                                                 (fn [mem args val] (reset! mem {args val}))]))

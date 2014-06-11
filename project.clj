@@ -15,16 +15,19 @@
                  [io.pedestal/pedestal.service "0.2.2"]
                  [io.pedestal/pedestal.service-tools "0.2.2"]
                  [javax.servlet/javax.servlet-api "3.1.0" :scope "provided"]
-                 [datascript "0.1.5-SNAPSHOT"]
+                 #_[datascript "0.1.5-SNAPSHOT"]
                  [prismatic/schema "0.2.1"]
                  [quiescent "0.1.2"]
-                 [automat "0.1.0"]]
+                 [automat "0.1.0"]
+                 [com.cemerick/clojurescript.test "0.3.1"]]
   :dev-dependencies [[lein-cljsbuild "1.0.2"]]
   :plugins [[lein-cljsbuild "1.0.2"]]
   :profiles {:dev {:dependencies [[enlive "1.1.5"]]
                     :plugins [[com.cemerick/austin "0.1.4"]]}}
   :cljsbuild {:builds [{:id "dev"
-                        :source-paths ["src-cljs" "/home/ewen/clojure/dragdrop/src"]
+                        :source-paths ["src-cljs" "/home/ewen/clojure/dragdrop/src"
+                                       "/home/ewen/clojure/datascript/src"
+                                       "/home/ewen/clojure/datascript/test"]
                         :compiler {
                         :output-to "resources/public/cljs/cle-usb.js"
                         :output-dir "resources/public/cljs/"
