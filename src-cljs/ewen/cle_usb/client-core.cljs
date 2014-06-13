@@ -172,13 +172,13 @@
 
 
 
-    (ds/q '[:find ?view
+    (ds/q2 '[:find ?view
             :where [_ :view/current ?view]]
           @app)
 
     (-> (ds/empty-db) (ds/with [[:db/add 1 :e "e"]]))
 
-    (ds/q '[:find ?view
+    (ds/q2 '[:find ?view
             :in $ %
             :where (current ?view)]
           @app '[[(current ?view) [_ :view/current ?view]]])
@@ -209,15 +209,15 @@
            ["Cyclops" 1]
            ["Chimera" 1] ])
 
-    (ds/bind-in+source '{[[[?k ?v ?c]] ...] [[[:a 1 1]] [[:b 2 2]] [[:c 3 3]]]})
+    (ds/bind-in+source (first '{[[[?k ?v ?c]] ...] [[[:a 1 1]] [[:b 2 2]] [[:c 3 3]]]}))
 
-    (ds/bind-in+source '{[?v ...] [:a :b :c]})
+    (ds/bind-in+source (first '{[?v ...] [:a :b :c]}))
 
-    (ds/bind-in+source '{[?word ?val] ["hello" "vallllll"]})
+    (ds/bind-in+source (first '{[?word ?val] ["hello" "vallllll"]}))
 
-    (ds/bind-in+source '{[[?monster ?heads]] [["Medusa" 1] ["Cyclops" 1] ["Chimera" 1]]})
+    (ds/bind-in+source (first '{[[?monster ?heads]] [["Medusa" 1] ["Cyclops" 1] ["Chimera" 1]]}))
 
-    (ds/bind-in+source '{% [[(current ?view) [_ :view/current ?view]]]})
+    (ds/bind-in+source (first '{% [[(current ?view) [_ :view/current ?view]]]}))
 
 
 
