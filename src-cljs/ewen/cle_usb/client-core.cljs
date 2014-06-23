@@ -9,9 +9,20 @@
             [ewen.cle-usb.client :as client]
             [datascript :as ds]
             [ewen.cle-usb.data :as data]
-            [ewen.cle-usb.math :refer [cartesian-product]])
+            [ewen.cle-usb.math :refer [cartesian-product]]
+            [clojure.zip :as zip]
+            [loom.graph :as g])
   (:require-macros [cljs.core.async.macros :refer [go go-loop]]
                    [ewen.async-plus.macros :as async+m]))
+
+
+
+
+
+
+
+
+
 
 
 (defn init []
@@ -179,16 +190,17 @@
     (-> (ds/empty-db) (ds/with [[:db/add 1 :e "e"]]))
 
     (ds/q2 '[:find ?view
-            :in $ %
-            :where (current ?view)]
-          @app '[[(current ?view) [_ :view/current ?view]]])
+             :in $ %
+             :where (current ?view)]
+           @app '[[(current ?view) [_ :view/current ?view]]])
+
 
     (do (set! datascript/built-ins (assoc datascript/built-ins 'subs subs))
 
         (ds/q '[:find ?prefix
-                :in [?word ...]
+                :in $ [?word ...]
                 :where [(subs ?word 0 5) ?prefix]]
-              ["hello" "antidisestablishmentarianism"]))
+              @app ["hello" "antidisestablishmentarianism"]))
 
     (do (set! datascript/built-ins (assoc datascript/built-ins 'subs subs))
 
@@ -219,6 +231,12 @@
 
     (ds/bind-in+source (first '{% [[(current ?view) [_ :view/current ?view]]]}))
 
+    (ds/process-where '(current ?view) {:__rules '{current [[(current ?view) [_ :view/current ?view]]]}})
+
+    (ds/bind-rule-branch '[(current ?view) [_ :view/current ?view]] '(?view) nil)
+
+    (ds/parse-rules '[(current ?view)] {:__rules '{current [[(current ?view) (current ?view)]]}})
+
 
 
 
@@ -230,6 +248,13 @@
 
 
     (data/get-channels @app)
+
+
+
+    (def ggg (g/digraph))
+    (def ggg (g/add-nodes* ggg [3 4]))
+    (def ggg (g/add-edges* ggg [[3 4]]))
+    (g/successors ggg 3)
 
     ))
 
