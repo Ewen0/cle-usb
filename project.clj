@@ -10,7 +10,6 @@
                  [org.clojure/core.async "0.1.278.0-76b25b-alpha"]
                  [domina "1.0.2"]
                  [sablono "0.2.6"]
-                 [ewen/dragdrop "0.1.0-SNAPSHOT"]
                  [org.clojure/core.match "0.2.1"]
                  [io.pedestal/pedestal.service "0.2.2"]
                  [io.pedestal/pedestal.service-tools "0.2.2"]

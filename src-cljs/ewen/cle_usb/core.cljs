@@ -5,7 +5,7 @@
             [ewen.dragdrop :as dd]
             [ewen.async-plus :as async+]
             [goog.style :as gstyle]
-            [com.ewen.cle_usb_cljs.render :as render]
+            [ewen.cle-usb.render :as render]
             [datascript :as ds])
   (:require-macros [cljs.core.async.macros :refer [go go-loop]]
                    [ewen.async-plus.macros :as async+m]))

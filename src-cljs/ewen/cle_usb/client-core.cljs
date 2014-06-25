@@ -1,7 +1,6 @@
 (ns ewen.cle-usb.client-core
   (:require [clojure.browser.repl] ;Only for development mode. TODO find a way to make a conditional require
             [sablono.core :as html :refer-macros [html html-expand]]
-            [ewen.dragdrop :as dd]
             [cljs.core.async :as async]
             [ewen.async-plus :as async+]
             [goog.style :as gstyle]
