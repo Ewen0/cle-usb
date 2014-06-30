@@ -1,6 +1,5 @@
 (ns ewen.cle-usb.client-core
   (:require [clojure.browser.repl] ;Only for development mode. TODO find a way to make a conditional require
-            [sablono.core :as html :refer-macros [html html-expand]]
             [cljs.core.async :as async]
             [ewen.async-plus :as async+]
             [goog.style :as gstyle]
@@ -9,8 +8,8 @@
             [datascript :as ds]
             [ewen.cle-usb.data :as data]
             [ewen.cle-usb.math :refer [cartesian-product]]
-            [clojure.zip :as zip]
-            [loom.graph :as g])
+            [loom.graph :as g]
+            [loom.attr :as attr])
   (:require-macros [cljs.core.async.macros :refer [go go-loop]]
                    [ewen.async-plus.macros :as async+m]))
 
@@ -182,16 +181,16 @@
 
 
 
-    (ds/q2 '[:find ?view
+    (ds/q '[:find ?view
             :where [_ :view/current ?view]]
           @app)
 
     (-> (ds/empty-db) (ds/with [[:db/add 1 :e "e"]]))
 
-    (ds/q2 '[:find ?view
-             :in $ %
-             :where (current ?view)]
-           @app '[[(current ?view) [_ :view/current ?view]]])
+    (:attrs (ds/q2 '[:find ?view
+                     :in $ %
+                     :where (current ?view)]
+                   @app '[[(current ?view) [_ :view/current ?view]]]))
 
 
     (do (set! datascript/built-ins (assoc datascript/built-ins 'subs subs))
@@ -236,6 +235,20 @@
 
     (ds/parse-rules '[(current ?view)] {:__rules '{current [[(current ?view) (current ?view)]]}})
 
+    (ds/wheres->branch '[[_ :view/current ?view] (current ?view)])
+
+    (ds/rule->where-graph '(current ?view) '{current [[(current ?view) [_ :view/current ?view]]]} {})
+
+    (ds/build-request-graph {'$ @app} '[(current ?view)] '(?view))
+
+    (let [g (ds/build-request-graph {'$ @app} '[(current ?view)] '(?view))]
+      (attr/attr g
+                 (first (ds/find-rules g '{current [[(current ?view) [_ :view/current ?view]]]}))
+                 :attrs))
+
+    (ds/expand-rules (ds/build-request-graph {'$ @app} '[(current ?view) [_ :first-branch ?tt]] '(?view))
+                     '{current [[(current ?view) [_ :view/current ?view] [_ :view/current ?view2] [_ :view/current ?view3]]
+                                [(current ?view) [_ :view/other-branch ?view]]]})
 
 
 
@@ -251,9 +264,15 @@
 
 
     (def ggg (g/digraph))
-    (def ggg (g/add-nodes* ggg [3 4]))
-    (def ggg (g/add-edges* ggg [[3 4]]))
-    (g/successors ggg 3)
+    (def ggg (g/add-edges* ggg [[3 4] [4 5] [5 6]]))
+    (def ggg2 (g/digraph))
+    (def ggg2 (g/add-edges* ggg2 [[30 40] [40 50] [50 60]]))
+    (def ggg3 (g/digraph))
+    (def ggg3 (g/add-edges* ggg3 [[300 400] [400 500] [500 600]]))
+    (g/predecessors ggg 4)
+    (g/successors ggg 4)
+    (attr/add-attr ggg 3 :a {:a "a"})
+    (time (ds/node->branches ggg 4 [ggg2 ggg3]))
 
     ))
 
