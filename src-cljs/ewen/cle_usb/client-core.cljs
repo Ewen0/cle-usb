@@ -178,7 +178,7 @@
 
 
 
-
+    (time (data/get-render-data @app))
 
 
     (ds/q '[:find ?view
@@ -187,7 +187,7 @@
 
     (-> (ds/empty-db) (ds/with [[:db/add 1 :e "e"]]))
 
-    (:attrs (ds/q2 '[:find ?view
+    (time (ds/q2 '[:find ?view
                      :in $ %
                      :where (current ?view)]
                    @app '[[(current ?view) [_ :view/current ?view]]]))
@@ -246,9 +246,9 @@
                  (first (ds/find-rules g '{current [[(current ?view) [_ :view/current ?view]]]}))
                  :attrs))
 
-    (ds/expand-rules (ds/build-request-graph {'$ @app} '[(current ?view) [_ :first-branch ?tt]] '(?view))
-                     '{current [[(current ?view) [_ :view/current ?view] [_ :view/current ?view2] [_ :view/current ?view3]]
-                                [(current ?view) [_ :view/other-branch ?view]]]})
+    (:attrs (ds/expand-rules (ds/build-request-graph {'$ @app} '[(current ?view) [_ :first-branch ?tt]] '(?view))
+                             '{current [[(current ?view) [_ :view/current ?view] [_ :view/current ?view2] [_ :view/current ?view3]]
+                                        [(current ?view) [_ :view/other-branch ?view]]]}))
 
 
 

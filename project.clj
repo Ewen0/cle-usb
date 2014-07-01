@@ -3,7 +3,7 @@
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :min-lein-version "2.0.0"
-  :source-paths ["src" "src-cljs"]
+  :source-paths ["src" "src-cljs" "/home/ewen/clojure/datascript/src"]
   :test-paths ["test" "test-server"]
   :dependencies [[org.clojure/clojure "1.6.0"]
                  [org.clojure/clojurescript "0.0-2234"]
