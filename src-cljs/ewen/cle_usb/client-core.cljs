@@ -260,6 +260,7 @@
 
 
     (data/get-channels @app)
+    (time (data/get-render-data @app))
 
 
 
@@ -273,6 +274,14 @@
     (g/successors ggg 4)
     (attr/add-attr ggg 3 :a {:a "a"})
     (time (ds/node->branches ggg 4 [ggg2 ggg3]))
+
+
+    (ds/analyze-q '[:find ?e ?e2 ?n
+                 :where [?e :name "Ivan"]
+                 [(-differ? :x :x)]
+                 [?e :age ?a]
+                 [?e2 :age ?a]
+                 [?e2 :name ?n]] (ds/empty-db))
 
     ))
 
