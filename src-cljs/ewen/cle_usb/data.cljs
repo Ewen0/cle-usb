@@ -62,7 +62,7 @@ any values for attr."
                 [?id :channel/mult ?mult]]
               db)))
 
-(defn get-list-passwords [db]
+#_(defn get-list-passwords [db]
   (->> (ds/q '[:find ?id ?label ?dragging ?sort-index
                :in $
                :where [?id :password/label ?label]
@@ -78,6 +78,25 @@ any values for attr."
                :sort-index sort-index}))
        (sort-by :sort-index)
        vec))
+
+(let [list-pwd-q '[:find ?id ?label ?dragging ?sort-index
+                   :in $
+                   :where [?id :password/label ?label]
+                   [?id :state/dragging ?dragging]
+                   [?id :state/sort-index ?sort-index]
+                   [(com.ewen.cle-usb.data/maybe $ ?id :password/width nil) ?width]
+                   [(com.ewen.cle-usb.data/maybe $ ?id :password/height nil) ?height]]
+      cached-query (atom #{})]
+  (defn get-list-passwords
+    ([] @cached-query)
+    ([db] (swap! cached-query (ds/q list-pwd-q db))))
+  (set! get-list-passwords (with-meta get-list-passwords {:index-keys-fn (fn [db] (ds/analyze-q list-pwd-q db))})))
+
+#_(ds/analyze-q '[:find  ?e ?e2 ?n
+                               :where [?e :name "Ivan"]
+                                      [?e :age ?a]
+                                     [?e2 :age ?a]
+                                     [?e2 :name ?n]] '$)
 
 
 
@@ -165,16 +184,22 @@ any values for attr."
 
 
 ;Render data
-#_(defmulti get-render-data (fn [db] (get-current-view db)))
+(defmulti get-render-data-mm (fn [db] (get-current-view db)))
 
-#_(defmethod get-render-data :home  [db]
+(defmethod get-render-data :home  [db]
   {:view :home :data (get-list-passwords db)})
 
-#_(defmethod get-render-data :new-password  [db]
+(defmethod get-render-data :new-password  [db]
   {:view :new-password :data {}})
 
-(defn get-render-data [db]
-  {:view :home :data (get-list-passwords db)})
+
+(let [cached-view (atom {})]
+  (defn get-render-data
+    ([] @cached-view)
+    ([db] (swap! cached-view (get-render-data-mm db)))))
+
+(defn update-render-data []
+  )
 
 #_(set! get-render-data (memoize get-render-data [{}
                                                 identity

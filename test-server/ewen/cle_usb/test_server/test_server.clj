@@ -40,6 +40,6 @@
               ::bootstrap/resource-path "/public/"})
 
 #_(web/start-servlet "/" (::http/servlet (http/create-servlet service)))
-#_(web/stop)
 #_(cemerick.austin.repls/cljs-repl repl-env)
 #_(cemerick.austin.repls/exec)
+#_(web/stop)

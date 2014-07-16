@@ -6,8 +6,7 @@
             [ewen.cle-usb.render :as render]
             [ewen.cle-usb.client :as client]
             [datascript :as ds]
-            [ewen.cle-usb.data :as data]
-            [ewen.cle-usb.math :refer [cartesian-product]])
+            [ewen.cle-usb.data :as data])
   (:require-macros [cljs.core.async.macros :refer [go go-loop]]
                    [ewen.async-plus.macros :as async+m]))
 
