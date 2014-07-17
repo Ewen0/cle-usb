@@ -1,7 +1,9 @@
 (ns ewen.cle-usb.data
   (:require [cljs.core.async :as async]
             [datascript :as ds]
-            [ewen.cle-usb.memoize :refer [memoize]]))
+            [ewen.cle-usb.memoize :refer [memoize]])
+  (:require-macros [ewen.cle-usb.data :refer [defquery]]))
+
 
 (defn load-app []
   (let [conn (ds/create-conn)]
@@ -47,7 +49,7 @@ any values for attr."
                     db e attr)]
     (only result if-not)))
 
-(set! datascript/built-ins (assoc datascript/built-ins 'com.ewen.cle-usb.data/maybe maybe) )
+(set! datascript/built-ins (assoc datascript/built-ins 'ewen.cle-usb.data/maybe maybe) )
 
 
 
@@ -79,7 +81,34 @@ any values for attr."
        (sort-by :sort-index)
        vec))
 
-(let [list-pwd-q '[:find ?id ?label ?dragging ?sort-index
+#_(defn make-query
+  ([q & sources]
+   (make-query q false))
+  ([q & sources]
+   (-> (if cache?
+         (let [cached-q (atom #{})]
+           (fn
+             ([] @cached-q)
+             ([data] (swap! cached-q (ds/q q data)))))
+         (fn [data] (ds/q q data)))
+       (with-meta {:index-keys-fn (fn [data] (ds/analyze-q q data))}))))
+
+
+(defquery get-list-passwords :cache true
+          [data] '[:find ?id ?label ?dragging ?sort-index
+                   :in $
+                   :where [?id :password/label ?label]
+                   [?id :state/dragging ?dragging]
+                   [?id :state/sort-index ?sort-index]
+                   [(ewen.cle-usb.data/maybe $ ?id :password/width nil) ?width]
+                   [(ewen.cle-usb.data/maybe $ ?id :password/height nil) ?height]]
+          data)
+
+
+
+
+
+#_(let [list-pwd-q '[:find ?id ?label ?dragging ?sort-index
                    :in $
                    :where [?id :password/label ?label]
                    [?id :state/dragging ?dragging]
@@ -184,12 +213,12 @@ any values for attr."
 
 
 ;Render data
-(defmulti get-render-data-mm (fn [db] (get-current-view db)))
+#_(defmulti get-render-data-mm (fn [db] (get-current-view db)))
 
-(defmethod get-render-data :home  [db]
+#_(defmethod get-render-data :home  [db]
   {:view :home :data (get-list-passwords db)})
 
-(defmethod get-render-data :new-password  [db]
+#_(defmethod get-render-data :new-password  [db]
   {:view :new-password :data {}})
 
 

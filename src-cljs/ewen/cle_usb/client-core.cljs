@@ -30,76 +30,76 @@
 
 
 
+(comment
+
+
+
+  ;client
+  (client/request-render app)
+
+
+  ;render
+  (defn render-view [render-data load-chan]
+    (render/request-render (:view render-data)
+                           load-chan
+                           (:data render-data)))
 
 
 
 
-;client
-(client/request-render app)
-
-
-;render
-(defn render-view [render-data load-chan]
-  (render/request-render (:view render-data)
-                         load-chan
-                         (:data render-data)))
-
-
-
-
-;Handle menu events
-(defmulti handle-menu-event identity)
-
-
-
-
-
-(defn maybe-update-pos [pwd-map id pos]
-  (if (= id (:id pwd-map)) (assoc pwd-map :position pos) pwd-map))
-
-;Passwords position
-(async+m/go-loop [pos-ch (data/get-pwd-pos-chan @app)]
-                 (when-let [{:keys [id pos]} (async/<! pos-ch)]
-                   (let [render-data (data/get-render-data @app)
-                         updated-data (-> (map #(maybe-update-pos % id pos)
-                                               (:data render-data))
-                                          vec)
-                         render-data (assoc render-data :data updated-data)]
-                     (render-view render-data (data/view-load-channel @app)))
-                   (recur pos-ch)))
-
-
-
-(data/listen-for! app
-                  :state/dragging
-                  ::dragging-listener
-                  #(render-view (data/get-render-data @app)
-                                (data/view-load-channel @app)))
-
-(data/listen-for! app
-                  :state/position
-                  ::position-listener
-                  #(render-view (data/get-render-data @app)
-                                (data/view-load-channel @app)))
-
-(data/listen-for! app
-                  :view/current
-                  ::menu-events-listener
-                  #(render-view (data/get-render-data @app)
-                                (data/view-load-channel @app)))
-
-(data/listen-for! app
-                  :state/sort-index
-                  ::sort-index-listener
-                  #(render-view (data/get-render-data @app)
-                                (data/view-load-channel @app)))
+  ;Handle menu events
+  (defmulti handle-menu-event identity)
 
 
 
 
 
-(render-view (data/get-render-data @app)
-             (data/view-load-channel @app))
+  (defn maybe-update-pos [pwd-map id pos]
+    (if (= id (:id pwd-map)) (assoc pwd-map :position pos) pwd-map))
+
+  ;Passwords position
+  (async+m/go-loop [pos-ch (data/get-pwd-pos-chan @app)]
+                   (when-let [{:keys [id pos]} (async/<! pos-ch)]
+                     (let [render-data (data/get-render-data @app)
+                           updated-data (-> (map #(maybe-update-pos % id pos)
+                                                 (:data render-data))
+                                            vec)
+                           render-data (assoc render-data :data updated-data)]
+                       (render-view render-data (data/view-load-channel @app)))
+                     (recur pos-ch)))
+
+
+
+  (data/listen-for! app
+                    :state/dragging
+                    ::dragging-listener
+                    #(render-view (data/get-render-data @app)
+                                  (data/view-load-channel @app)))
+
+  (data/listen-for! app
+                    :state/position
+                    ::position-listener
+                    #(render-view (data/get-render-data @app)
+                                  (data/view-load-channel @app)))
+
+  (data/listen-for! app
+                    :view/current
+                    ::menu-events-listener
+                    #(render-view (data/get-render-data @app)
+                                  (data/view-load-channel @app)))
+
+  (data/listen-for! app
+                    :state/sort-index
+                    ::sort-index-listener
+                    #(render-view (data/get-render-data @app)
+                                  (data/view-load-channel @app)))
+
+
+
+
+
+  (render-view (data/get-render-data @app)
+               (data/view-load-channel @app)))
 
 
 

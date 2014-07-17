@@ -6,7 +6,7 @@
   :source-paths ["src" "src-cljs"]
   :test-paths ["test" "test-server"]
   :dependencies [[org.clojure/clojure "1.6.0"]
-                 [org.clojure/clojurescript "0.0-2234"]
+                 [org.clojure/clojurescript "0.0-2268"]
                  [org.clojure/core.async "0.1.278.0-76b25b-alpha"]
                  [domina "1.0.2"]
                  [sablono "0.2.6"]
