@@ -10,7 +10,8 @@
             [clojure.string]
             [goog.style :as gstyle]
             [goog.math]
-            [clojure.data :refer [diff]])
+            [clojure.data :refer [diff]]
+            [datascript :as ds])
   (:require-macros [ewen.async-plus.macros :as async+m]
                    [cljs.core.async.macros :refer [go go-loop]]))
 
@@ -74,7 +75,7 @@
 
 ;TODO Hardcoded namepsace !!
 (defn app-id->node [id]
-   (-> (keyword 'com.ewen.cle-usb.render id)
+   (-> (keyword 'ewen.cle-usb.render id)
       encode-selector
       (#(str "#" %))
       sel
@@ -106,8 +107,8 @@
 (defn dd-up-callback [app id]
   (data/set-dragging! app id false)
   (let [pwd-pos-chan (data/get-pwd-pos-chan @app)
-        init-pos (data/get-init-pos @app id)]
-    (async+/put! pwd-pos-chan init-pos)))
+        init-pos (:state/init-pos (ds/entity @app id))]
+    (data/set-pwd-pos! app id init-pos)))
 
 #_(defn merge-pos
   [pos handle-pos init-pos]
@@ -122,11 +123,11 @@
 (defn dd-move-callback [app id e]
   (let [pwd-pos-chan (data/get-pwd-pos-chan @app)]
     (when (data/get-dragging @app id)
-      (let [init-pos (data/get-init-pos @app id)
-            handle-pos (data/get-handle-pos @app id)]
-        (async+/put! pwd-pos-chan {:id id :pos (merge-pos (event->pos e)
-                                                          handle-pos
-                                                          init-pos)})))))
+      (let [init-pos (-> (ds/entity @app id) :state/init-pos)
+            handle-pos (-> (ds/entity @app id) :state/handle-pos)]
+        (data/set-pwd-pos! app id (merge-pos (event->pos e)
+                                             handle-pos
+                                             init-pos))))))
 
 (defn dd [app delegate id node node-handle]
   (let [init-pos (gstyle/getPosition node)]
@@ -186,7 +187,7 @@
                      (recur sortable-ch))))
 
 
-(defn process-sortable [app]
+#_(defn process-sortable [app]
   (let [data @app
         load-view-mult (->> (data/view-load-channel data)
                             (async+/filter< #(= :home (:view %)))
@@ -207,6 +208,29 @@
                (reset! old-render-data render-data)
                (recur load-view-chan sortable-mult))
               (async+/close! load-view-mult))))
+
+
+(defn pos-datom->map [datom]
+  {:id (:e datom) :pos (:v datom)})
+
+(defn get-pwd-pos-chan [app]
+  (let [pwd-pos-chan (async/chan)]
+    (ds/listen! app :password/pos
+                #(let [pos-seq (->> (:tx-data %)
+                                    (filter :added)
+                                    (map pos-datom->map))]
+                  (doseq [pos pos-seq]
+                    (async/put! pwd-pos-chan pos)))
+                (-> (meta data/get-pwd-pos)
+                    :index-keys-fn
+                    (apply [@app])))))
+
+(defn process-sortable [app]
+  (let [data @app
+        load-view-mult (->> (data/view-load-channel data)
+                            (async+/filter< #(= :home (:view %)))
+                            (async+/map< :data))
+        old-render-data (atom (:data (data/get-render-data data)))]))
 
 
 
@@ -246,6 +270,7 @@
                   (map node->app-id pwd-nodes)
                   pwd-nodes
                   (map dd-button-selector pwd-nodes)))
+      ;Set up sortable for passwords
       (process-sortable app))))
 
 ;Init the new-password view
@@ -261,4 +286,8 @@
                      (when-let [view (async/<! change-view-ch)]
                        (render-view app view)
                        (recur change-view-ch)))))
+
+(comment
+
+  )
 

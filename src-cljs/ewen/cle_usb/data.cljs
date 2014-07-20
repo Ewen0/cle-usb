@@ -64,34 +64,6 @@ any values for attr."
                 [?id :channel/mult ?mult]]
               db)))
 
-#_(defn get-list-passwords [db]
-  (->> (ds/q '[:find ?id ?label ?dragging ?sort-index
-               :in $
-               :where [?id :password/label ?label]
-               [?id :state/dragging ?dragging]
-               [?id :state/sort-index ?sort-index]
-               [(com.ewen.cle-usb.data/maybe $ ?id :password/width nil) ?width]
-               [(com.ewen.cle-usb.data/maybe $ ?id :password/height nil) ?height]]
-             db)
-       (map (fn [[id label dragging sort-index]]
-              {:id          id
-               :label       label
-               :placeholder dragging
-               :sort-index sort-index}))
-       (sort-by :sort-index)
-       vec))
-
-#_(defn make-query
-  ([q & sources]
-   (make-query q false))
-  ([q & sources]
-   (-> (if cache?
-         (let [cached-q (atom #{})]
-           (fn
-             ([] @cached-q)
-             ([data] (swap! cached-q (ds/q q data)))))
-         (fn [data] (ds/q q data)))
-       (with-meta {:index-keys-fn (fn [data] (ds/analyze-q q data))}))))
 
 
 (defquery get-list-passwords :cache true
@@ -101,31 +73,9 @@ any values for attr."
                    [?id :state/dragging ?dragging]
                    [?id :state/sort-index ?sort-index]
                    [(ewen.cle-usb.data/maybe $ ?id :password/width nil) ?width]
-                   [(ewen.cle-usb.data/maybe $ ?id :password/height nil) ?height]]
-          data)
+                   [(ewen.cle-usb.data/maybe $ ?id :password/height nil) ?height]] data)
 
 
-
-
-
-#_(let [list-pwd-q '[:find ?id ?label ?dragging ?sort-index
-                   :in $
-                   :where [?id :password/label ?label]
-                   [?id :state/dragging ?dragging]
-                   [?id :state/sort-index ?sort-index]
-                   [(com.ewen.cle-usb.data/maybe $ ?id :password/width nil) ?width]
-                   [(com.ewen.cle-usb.data/maybe $ ?id :password/height nil) ?height]]
-      cached-query (atom #{})]
-  (defn get-list-passwords
-    ([] @cached-query)
-    ([db] (swap! cached-query (ds/q list-pwd-q db))))
-  (set! get-list-passwords (with-meta get-list-passwords {:index-keys-fn (fn [db] (ds/analyze-q list-pwd-q db))})))
-
-#_(ds/analyze-q '[:find  ?e ?e2 ?n
-                               :where [?e :name "Ivan"]
-                                      [?e :age ?a]
-                                     [?e2 :age ?a]
-                                     [?e2 :name ?n]] '$)
 
 
 
@@ -138,11 +88,16 @@ any values for attr."
             db)
        (reduce (fn [m [k v]] (merge m {(keyword k) v})) {})))
 
-(defn get-current-view [data]
+#_(defn get-current-view [data]
   (-> (ds/q '[:find ?view
               :where [_ :view/current ?view]]
             data)
       only))
+
+(defquery get-current-view [data]
+          '[:find ?view
+            :where [_ :view/current ?view]] data)
+
 
 (defn get-current-view-id [data]
   (-> (ds/q '[:find ?id
@@ -199,6 +154,14 @@ any values for attr."
             data)
       only))
 
+(defquery get-pwd-pos [data]
+          '[:find ?pwd-id ?pos
+            :where [?pwd-id :password/pos ?pos]] data)
+
+(defn set-pwd-pos! [app pwd-id pos]
+  (ds/transact! app [{:db/id        pwd-id
+                      :password/pos pos}]))
+
 (defn set-sort-indexes! [app sort-indexes]
   (ds/transact! app (-> (map (fn [m]
                                {:db/id (:id m)
@@ -208,32 +171,6 @@ any values for attr."
                         vec)))
 
 
-
-
-
-
-;Render data
-#_(defmulti get-render-data-mm (fn [db] (get-current-view db)))
-
-#_(defmethod get-render-data :home  [db]
-  {:view :home :data (get-list-passwords db)})
-
-#_(defmethod get-render-data :new-password  [db]
-  {:view :new-password :data {}})
-
-
-(let [cached-view (atom {})]
-  (defn get-render-data
-    ([] @cached-view)
-    ([db] (swap! cached-view (get-render-data-mm db)))))
-
-(defn update-render-data []
-  )
-
-#_(set! get-render-data (memoize get-render-data [{}
-                                                identity
-                                                (fn [mem args] mem)
-                                                (fn [mem args val] (reset! mem {args val}))]))
 
 
 

@@ -5,8 +5,8 @@
             [goog.style :as gstyle]
             [ewen.cle-usb.render :as render]
             [ewen.cle-usb.client :as client]
-            [datascript :as ds]
-            [ewen.cle-usb.data :as data])
+            [ewen.cle-usb.data :as data]
+            [datascript :as ds])
   (:require-macros [cljs.core.async.macros :refer [go go-loop]]
                    [ewen.async-plus.macros :as async+m]))
 
@@ -30,46 +30,80 @@
 
 
 
+
+
+
+
+;client
+(client/request-render app)
+
+
+;render
+(defn render-view [render-data load-chan]
+  (render/request-render (:view render-data)
+                         load-chan
+                         (:data render-data)))
+
+
+
+
+
+
+
+(defn maybe-update-pos [pwd-map id pos]
+  (if (= id (:id pwd-map)) (assoc pwd-map :position pos) pwd-map))
+
+;Passwords position
+#_(async+m/go-loop [pos-ch (data/get-pwd-pos-chan @app)]
+                 (when-let [{:keys [id pos]} (async/<! pos-ch)]
+                   (let [render-data (data/get-render-data @app)
+                         updated-data (-> (map #(maybe-update-pos % id pos)
+                                               (:data render-data))
+                                          vec)
+                         render-data (assoc render-data :data updated-data)]
+                     (render-view render-data (data/view-load-channel @app)))
+                   (recur pos-ch)))
+
+
+
+
+
+(defmulti get-render-data (fn [data view] view))
+
+(defmethod get-render-data :home  [data view]
+  (->> (data/get-list-passwords data)
+       (map (fn [[id label dragging sort-index]]
+              {:id          id
+               :label       label
+               :placeholder dragging
+               :sort-index sort-index}))
+       (sort-by :sort-index)
+       vec))
+
+(defmethod get-render-data :new-password  [data view]
+  {})
+
+
+
+
+
+
+(let [load-ch (data/view-load-channel @app)
+      change-view-callback (fn [tx-report]
+                             (let [view (->> (:tx-data tx-report)
+                                             (filter :added)
+                                             first
+                                             :v)]
+                               (render-view {:view view
+                                             :data (get-render-data @app view)}
+                                            load-ch)))]
+  (ds/listen! app :view/current
+              change-view-callback
+              (-> (meta data/get-current-view)
+                  :index-keys-fn
+                  (apply [@app]))))
+
 (comment
-
-
-
-  ;client
-  (client/request-render app)
-
-
-  ;render
-  (defn render-view [render-data load-chan]
-    (render/request-render (:view render-data)
-                           load-chan
-                           (:data render-data)))
-
-
-
-
-  ;Handle menu events
-  (defmulti handle-menu-event identity)
-
-
-
-
-
-  (defn maybe-update-pos [pwd-map id pos]
-    (if (= id (:id pwd-map)) (assoc pwd-map :position pos) pwd-map))
-
-  ;Passwords position
-  (async+m/go-loop [pos-ch (data/get-pwd-pos-chan @app)]
-                   (when-let [{:keys [id pos]} (async/<! pos-ch)]
-                     (let [render-data (data/get-render-data @app)
-                           updated-data (-> (map #(maybe-update-pos % id pos)
-                                                 (:data render-data))
-                                            vec)
-                           render-data (assoc render-data :data updated-data)]
-                       (render-view render-data (data/view-load-channel @app)))
-                     (recur pos-ch)))
-
-
-
   (data/listen-for! app
                     :state/dragging
                     ::dragging-listener
@@ -82,24 +116,22 @@
                     #(render-view (data/get-render-data @app)
                                   (data/view-load-channel @app)))
 
-  (data/listen-for! app
-                    :view/current
-                    ::menu-events-listener
-                    #(render-view (data/get-render-data @app)
-                                  (data/view-load-channel @app)))
 
   (data/listen-for! app
                     :state/sort-index
                     ::sort-index-listener
                     #(render-view (data/get-render-data @app)
-                                  (data/view-load-channel @app)))
+                                  (data/view-load-channel @app))))
 
 
 
 
-
-  (render-view (data/get-render-data @app)
-               (data/view-load-channel @app)))
+(let [view (-> (data/get-current-view @app) data/only)
+      load-ch (data/view-load-channel @app)
+      data (get-render-data @app view)]
+  (render-view {:view view
+                :data data}
+               load-ch))
 
 
 
@@ -227,6 +259,21 @@
 
 
   (data/get-channels @app)
+
+  (data/get-list-passwords @app)
+
+  (->> (data/get-list-passwords @app)
+       (map (fn [[id label dragging sort-index]]
+              {:id          id
+               :label       label
+               :placeholder dragging
+               :sort-index sort-index}))
+       (sort-by :sort-index)
+       vec)
+
+  (-> (meta data/get-list-passwords) :index-keys-fn (apply [@app]))
+
+  (data/get-current-view @app)
 
   )
 
