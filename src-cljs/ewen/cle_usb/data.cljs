@@ -75,6 +75,11 @@ any values for attr."
                    [(ewen.cle-usb.data/maybe $ ?id :password/width nil) ?width]
                    [(ewen.cle-usb.data/maybe $ ?id :password/height nil) ?height]] data)
 
+(defquery get-password-ids-indexes
+          [data] '[:find ?id ?sort-index
+                   :where [?id :password/label _]
+                   [?id :state/sort-index ?sort-index]] data)
+
 
 
 

@@ -1,5 +1,6 @@
 (ns ewen.cle-usb.render
-  (:require [domina :refer [single-node]]
+  (:require [ewen.cle-usb.data :as data]
+            [domina :refer [single-node]]
             [domina.css :refer [sel]]
             [cljs.core.async :as async]
             [ewen.async-plus :as async+]
@@ -41,15 +42,18 @@ component should re-render."
   (let [react-component
         (.createClass js/React
                       #js {:shouldComponentUpdate
-                            (fn [next-props _]
+                            (fn [next-props next-state]
                               (this-as this
-                                       (not= (aget (.-props this) "value")
-                                             (aget next-props "value"))))
+                                       (or
+                                         (not= (aget (.-state this) "state") (aget next-state "state"))
+                                         (not= (aget (.-props this) "value")
+                                               (aget next-props "value")))))
                            :render
                             (fn []
                               (this-as this
                                        (binding [q/*component* this]
-                                         (apply renderer
+                                         (renderer
+                                                (.-state this)
                                                 (aget (.-props this) "value")
                                                 (aget (.-props this) "statics")))))})]
     (fn [value static-args react-props]
@@ -97,7 +101,7 @@ component should re-render."
 
 
 (q/defcomponent password-button
-                [password-map]
+                [_ password-map]
                 (html [:div.pwd-button
                        [:p (:label password-map)]]))
 
@@ -109,14 +113,14 @@ component should re-render."
                        [:img {:src "img/1_navigation_expand.png"}]]))
 
 
-(q/defcomponent password [password-map]
+(q/defcomponent password [_ password-map]
                 (html [:div.password {:ref (str (:id password-map))
                                       :id  (-> (keyword (namespace ::x) (:id password-map))
                                                encode-selector)}
                        (password-button password-map)
                        (password-dd)]))
 
-(q/defcomponent placeholder [password-map]
+(q/defcomponent placeholder [_ password-map]
                 (let [pos (if (and (:placeholder password-map)
                                    (:position password-map))
                               {:position "absolute" :top (-> password-map :position :y)}
@@ -133,11 +137,15 @@ component should re-render."
                            [:div {:style (clj->js dim)}])])))
 
 
-(q/defcomponent passwords-list [passwords-vec]
-                (html [:div#list-pwd
-                       (map #(placeholder %1 nil {:key %2})
-                            passwords-vec
-                            (map :id passwords-vec))]))
+(q/defcomponent passwords-list [state passwords-vec {:keys [app]}]
+                (q/wrapper
+                  (do (.log js/console (.-replaceState q/*component*))
+                      (html [:div#list-pwd
+                             (map #(placeholder nil nil {:key %})
+                                  passwords-vec)]))
+                  :onWillMount (fn [] (.replaceState q/*component* #js {:state (->> (data/get-password-ids-indexes @app)
+                                                                         (map (fn [[id sort-index]] {id {:sort-index sort-index}}))
+                                                                         (apply merge))}))))
 
 
 (q/defcomponent new-password []
@@ -166,15 +174,15 @@ component should re-render."
 
 
 ;Rendering functions for each pages
-(defmulti render (fn [data view] view))
+(defmulti render (fn [app db view] view))
 
-(defmethod render :home [data view]
+(defmethod render :home [app db view]
   (q/render (header)
             (-> (sel "#header") single-node))
-  (q/render (passwords-list data)
+  (q/render (passwords-list db {:app app})
             (-> (sel "#app") single-node)))
 
-(defmethod render :new-password [data view]
+(defmethod render :new-password [app db view]
   (q/render (header)
             (-> (sel "#header") single-node))
   (q/render (new-password)
@@ -188,25 +196,25 @@ component should re-render."
       render-queued? (atom false)]
   (defn request-render
     "Render the given application state tree."
-    [view load-mult data]
+    [app view load-mult db]
     (if (compare-and-set! render-pending? false true)
       (.requestAnimationFrame js/window
                               (fn []
-                                (render data view)
-                                (go (async/>! (async/muxch* load-mult) {:view view :data data}))
+                                (render app db view)
+                                (go (async/>! (async/muxch* load-mult) {:view view :data db}))
                                 (while @render-queued?
-                                  (let [[data view] @render-queued?]
-                                    (render data view)
-                                    (go (async/>! (async/muxch* load-mult) {:view view :data data}))
+                                  (let [[db view] @render-queued?]
+                                    (render app db view)
+                                    (go (async/>! (async/muxch* load-mult) {:view view :data db}))
                                     (reset! render-queued? false)))
                                 (reset! render-pending? false)))
-      (reset! render-queued? [data view]))))
+      (reset! render-queued? [db view]))))
 
 
 
 (comment
 
-  (load-namespace 'ewen.cle-usb.client-core)
+  (load-namespace 'cle-usb.client-core)
   (def aa com.ewen.cle-usb.core-datascript/app)
 
 

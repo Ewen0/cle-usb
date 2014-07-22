@@ -40,7 +40,8 @@
 
 ;render
 (defn render-view [render-data load-chan]
-  (render/request-render (:view render-data)
+  (render/request-render app
+                         (:view render-data)
                          load-chan
                          (:data render-data)))
 

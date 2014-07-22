@@ -271,7 +271,7 @@
                   pwd-nodes
                   (map dd-button-selector pwd-nodes)))
       ;Set up sortable for passwords
-      (process-sortable app))))
+      #_(process-sortable app))))
 
 ;Init the new-password view
 (defmethod render-view :new-password [app view]
