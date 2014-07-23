@@ -75,6 +75,16 @@ any values for attr."
                    [(ewen.cle-usb.data/maybe $ ?id :password/width nil) ?width]
                    [(ewen.cle-usb.data/maybe $ ?id :password/height nil) ?height]] data)
 
+(defquery get-passwords-dragging
+          [data id] '[:find ?dragging ?pos ?width ?height
+                   :in $ ?id
+                   :where
+                   [?id :state/dragging ?dragging]
+                   [(ewen.cle-usb.data/maybe $ ?id :password/pos nil) ?pos]
+                   [(ewen.cle-usb.data/maybe $ ?id :password/width nil) ?width]
+                   [(ewen.cle-usb.data/maybe $ ?id :password/height nil) ?height]]
+          data id)
+
 (defquery get-password-ids-indexes
           [data] '[:find ?id ?sort-index
                    :where [?id :password/label _]
