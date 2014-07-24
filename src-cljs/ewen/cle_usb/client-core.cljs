@@ -35,7 +35,7 @@
 
 
 ;client
-(client/request-render app)
+#_(client/request-render app)
 
 
 ;render

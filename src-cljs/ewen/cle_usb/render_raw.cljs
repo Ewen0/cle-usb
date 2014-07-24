@@ -6,7 +6,6 @@
             [ewen.async-plus :as async+]
             [sablono.core :as html :refer-macros [html html-expand]]
             [datascript :as ds]
-            [quiescent :as q :include-macros true]
             [clojure.string]
             [cljs.core.match]
             [goog.style :as gstyle])
@@ -103,7 +102,6 @@
   (let [default-methods {:shouldComponentUpdate
                                       (fn [next-props next-state]
                                         (this-as this
-                                                 (.log js/console "r "  this)
                                                  (or (not= (get-state this) next-state)
                                                      (not= (get-props this) next-props))))
                          :displayName name}
@@ -115,56 +113,7 @@
                             map->js-obj)))))
 
 
-(defn encode-selector [selector]
-      (-> selector
-          str
-          (clojure.string/replace-first ":" "")
-          (clojure.string/replace "." "_DOT_")
-          (clojure.string/replace "/" "_SLASH_")))
 
-(defn decode-selector [selector]
-      (-> selector
-          (clojure.string/replace "_DOT_" ".")
-          (clojure.string/replace "_SLASH_" "/")
-          keyword))
-
-;hook quiecent to allow to pass react.js props to components
-(defn component
-      "Return a function that will return a ReactJS component, using the
-    provided function as the implementation for React's 'render' method
-    on the component.
-
-    The given render function should take a single immutable value as
-    its first argument, and return a single ReactJS component.
-    Additional arguments to the component constructor will be passed as
-    additional arguments to the render function whenever it is invoked,
-    but will *not* be included in any calculations regarding whether the
-    component should re-render."
-      [renderer]
-      (let [react-component
-            (.createClass js/React
-                          #js {:shouldComponentUpdate
-                                (fn [next-props next-state]
-                                    (this-as this
-                                             (or
-                                               (not= (aget (.-state this) "state") (aget next-state "state"))
-                                               (not= (aget (.-props this) "value")
-                                                     (aget next-props "value")))))
-                               :render
-                                (fn []
-                                    (this-as this
-                                             (binding [q/*component* this]
-                                                      (renderer
-                                                        (.-state this)
-                                                        (aget (.-props this) "value")
-                                                        (aget (.-props this) "statics")))))})]
-           (fn [value static-args react-props]
-               (let [params (merge {:value value :statics static-args}
-                                   react-props)]
-                    (react-component (apply js-obj (mapcat (fn [[k v]] [(name k) v]) params)))))))
-
-
-(set! q/component component)
 
 
 
@@ -174,93 +123,102 @@
 
 
 ;The header react component
-(q/defcomponent header []
-                (html [:div#action-bar
-                       [:img#logo-action-bar
-                        {:src "img/logo_action_bar.png"}]
-                       [:img#action-bar-divider
-                        {:src "img/action_bar_divider.png"}]
-                       [:img#action-bar-title
-                        {:src "img/action_bar_title.png"}]
-                       [:div.dropdown.menu
-                        [:button.navbar-toggle
-                         {:data-toggle "dropdown"
-                          :type "button"}
-                         [:span.icon-bar]
-                         [:span.icon-bar]
-                         [:span.icon-bar]]
-                        [:ul.dropdown-menu
-                         {:role "menu"
-                          :aria-labelledby "dLabel"}
-                         [:li
-                          [:a.home-link {:href "#"}
-                           "Home"]
-                          [:a.new-pwd-link {:href "#"}
-                           "Add new password"]]]]]))
+(def header
+  (component-raw "header"
+                 {:render (fn []
+                            (html [:div#action-bar
+                                   [:img#logo-action-bar
+                                    {:src "img/logo_action_bar.png"}]
+                                   [:img#action-bar-divider
+                                    {:src "img/action_bar_divider.png"}]
+                                   [:img#action-bar-title
+                                    {:src "img/action_bar_title.png"}]
+                                   [:div.dropdown.menu
+                                    [:button.navbar-toggle
+                                     {:data-toggle "dropdown"
+                                      :type "button"}
+                                     [:span.icon-bar]
+                                     [:span.icon-bar]
+                                     [:span.icon-bar]]
+                                    [:ul.dropdown-menu
+                                     {:role "menu"
+                                      :aria-labelledby "dLabel"}
+                                     [:li
+                                      [:a.home-link {:href "#"}
+                                       "Home"]
+                                      [:a.new-pwd-link {:href "#"}
+                                       "Add new password"]]]]]))}))
 
 
 
 
 
-(q/defcomponent password-button
-                [_ password-map]
-                (html [:div.pwd-button
-                       [:p (:label password-map)]]))
+
+(def password-button
+  (component-raw "password-button"
+                 {:render (fn [_ label _]
+                            (html [:div.pwd-button
+                                   [:p label]]))
+                  :getInitialState (fn [{:keys [id]} {:keys [app]}]
+                                     (:password/label (ds/entity @app id)))
+                  :componentWillMount (fn [{:keys [id]} _ {:keys [app]}]
+                                        (let [comp *component*
+                                              index-keys #{[@app :eavt id :password/label]}
+                                              callback (fn [{:keys [tx-data]}]
+                                                         (let [state (atom (get-state comp))]
+                                                           (when @state
+                                                             (doseq [datom tx-data]
+                                                               (match [datom]
+                                                                      [{:e     id
+                                                                        :a     :password/label
+                                                                        :v     label
+                                                                        :added true}] (reset! state label)
+                                                                      :else nil))
+                                                             (replace-state! comp @state))))]
+                                          (ds/listen! app (str "password-button-" id)
+                                                      callback
+                                                      index-keys)))
+                  :componentWillUnmount (fn []              ;TODO unregister listener
+                                          )}))
 
 
 
-(q/defcomponent password-dd []
-                (html [:div.pwd-dragdrop {:ref "pwd-drapdrop"}
-                       [:img {:src "img/1_navigation_collapse.png"}]
-                       [:img {:src "img/1_navigation_expand.png"}]]))
 
 
-#_(q/defcomponent password [_ password-map]
-                (html [:div.password {:ref (str (:id password-map))
-                                      :id  (-> (keyword (namespace ::x) (:id password-map))
-                                               encode-selector)}
-                       (password-button password-map)
-                       (password-dd)]))
+(def password-dd
+  (component-raw "password-dd"
+                 {:render (fn []
+                            (html [:div.pwd-dragdrop
+                                   [:img {:src "img/1_navigation_collapse.png"}]
+                                   [:img {:src "img/1_navigation_expand.png"}]]))}))
+
+
 
 (def password
   (component-raw "password"
-                 {:render (fn []
-                            (html [:div]))}))
+                 {:render (fn [{:keys [id]} _ {:keys [app]}]
+                            (html [:div.password
+                                   (password-button {:id id} {:app app})
+                                   (password-dd)]))}))
 
-#_(q/defcomponent placeholder [_ password-map]
-                (let [pos (if (and (:placeholder password-map)
-                                   (:position password-map))
-                            {:position "absolute" :top (-> password-map :position :y)}
-                            {:position "static" :z-index 0})
-                      dim (if (:width password-map) {:width (:width password-map)} {})
-                      dim (merge dim (if (:height password-map) {:height (:height password-map)} {}))
-                      style (merge dim pos)]
-                     (html [:div [:div {:style style}
-                                  (password password-map)]
-                            ;Placeholder empty div. This is to avoid the whole list of passwords
-                            ;to move when a password switch to the dragging state.
-                            (when (and (:placeholder password-map)
-                                       (:position password-map))
-                                  [:div {:style (clj->js dim)}])])))
 
 (def placeholder
   (component-raw "placeholder"
                  {:render (fn [{:keys [id]}
                                {:keys [dragging pos width height] :as state}
                                {:keys [app]}]
-                            (do (.log js/console (str state))
-                                (let [pos (if (and (not dragging) pos)
-                                            {:position "absolute" :top (:y pos)}
-                                            {:position "static" :z-index 0})
-                                      dim (if width {:width width} {})
-                                      dim (merge dim (if height {:height height} {}))
-                                      style (merge dim pos)]
-                                  (html [:div [:div {:style style}
-                                               (password {:id id} {:app app})]
-                                         ;Placeholder empty div. This is to avoid the whole list of passwords
-                                         ;to move when a password switch to the dragging state.
-                                         (when (and (not dragging) pos)
-                                           [:div {:style (clj->js dim)}])]))))
+                            (let [pos (if (and (not dragging) pos)
+                                        {:position "absolute" :top (:y pos)}
+                                        {:position "static" :z-index 0})
+                                  dim (if width {:width width} {})
+                                  dim (merge dim (if height {:height height} {}))
+                                  style (merge dim pos)]
+                              (html [:div [:div {:style style}
+                                           (password {:id id} {:app app})]
+                                     ;Placeholder empty div. This is to avoid the whole list of passwords
+                                     ;to move when a password switch to the dragging state.
+                                     (when (and (not dragging) pos)
+                                       [:div {:style (clj->js dim)}])])))
                   :getInitialState (fn [{:keys [id]} {:keys [app]}]
                                      (->> (data/get-passwords-dragging @app id)
                                           (map (fn [[dragging _ _ _ ]] {:dragging dragging}))
@@ -291,7 +249,6 @@
                                                                         :v     height
                                                                         :added true}] (assoc! state :height height)
                                                                       :else nil))
-                                                             #_(.log js/console (str "e " (persistent! state)))
                                                              (replace-state! comp (persistent! state)))))]
                                           (ds/listen! app (keyword (str "password-dragging-" id))
                                                       callback
@@ -339,25 +296,28 @@
 
 
 
-(q/defcomponent new-password []
-                (html [:div
-                       [:div#password-label-wrapper.section
-                        [:div.section-header [:h2 "Password label"]]
-                        [:input#password-label {:placeholder "Password label"
-                                                :type        "text"
-                                                :value       ""}]]
-                       [:div#password-value-wrapper.section
-                        [:div.section-header
-                         [:h2 "Password value"]]
-                        [:input#password-value {:placeholder "Password value"
-                                                :type        "password"
-                                                :value       ""}]]
-                       [:div.action-buttons [:input#new-password-button
-                                             #_(assoc-if false
-                                                       {:type    "button"
-                                                        :value   "Validate"}
-                                                       :disabled "disabled")]]
-                       [:p#err-msg]]))
+
+(def new-password
+  (component-raw "new-password"
+             {:render (fn []
+                        (html [:div
+                               [:div#password-label-wrapper.section
+                                [:div.section-header [:h2 "Password label"]]
+                                [:input#password-label {:placeholder "Password label"
+                                                        :type        "text"
+                                                        :value       ""}]]
+                               [:div#password-value-wrapper.section
+                                [:div.section-header
+                                 [:h2 "Password value"]]
+                                [:input#password-value {:placeholder "Password value"
+                                                        :type        "password"
+                                                        :value       ""}]]
+                               [:div.action-buttons [:input#new-password-button
+                                                     #_(assoc-if false
+                                                               {:type    "button"
+                                                                :value   "Validate"}
+                                                               :disabled "disabled")]]
+                               [:p#err-msg]]))}))
 
 
 
@@ -368,15 +328,15 @@
 (defmulti render-app (fn [app render-data view] view))
 
 (defmethod render-app :home [app render-data view]
-           (q/render (header)
+           (render (header)
                      (-> (sel "#header") single-node))
            (render (passwords-list render-data {:app app})
                      (-> (sel "#app") single-node)))
 
 (defmethod render-app :new-password [app render-data view]
-           (q/render (header)
+           (render (header)
                      (-> (sel "#header") single-node))
-           (q/render (new-password)
+           (render (new-password)
                      (-> (sel "#app") single-node)))
 
 
