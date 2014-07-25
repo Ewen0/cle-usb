@@ -1,6 +1,6 @@
 (ns ewen.cle-usb.data)
 
-(defmacro defquery [name params query & sources]
+#_(defmacro defquery [name params query & sources]
   (let [cache-key? (= :cache params)
         params (if cache-key? (first sources) params)
         query (if cache-key? (second sources) query)
@@ -18,6 +18,27 @@
          (cljs.core/with-meta (~'fn ~params (datascript/q ~query ~@sources))
                               {:index-keys-fn
                                 (~'fn ~params (datascript/analyze-q ~query ~@sources))})))))
+
+(defmacro defquery [name params query & sources]
+  (let [cache-key? (= :cache params)
+        params (if cache-key? (first sources) params)
+        params (into '[_] params)                           ;Add the first argument to a Protocol method call
+        query (if cache-key? (second sources) query)
+        sources (if cache-key? (nthrest sources 2) sources)
+        cache? (if cache-key? query false)]
+    (if cache?
+      `(let [cached-query# (cljs.core/atom #{})]
+         (def ~name
+           (reify cljs.core/IFn
+             (~'-invoke ~'[_] (cljs.core/deref cached-query#))
+             (~'-invoke ~params (cljs.core/reset! cached-query# (datascript/q ~query ~@sources)))
+             ewen.cle-usb.data/IndexKeys
+             (~'get-index-keys ~params (datascript/analyze-q ~query ~@sources)))))
+      `(def ~name
+         (reify cljs.core/IFn
+           (~'-invoke ~params (datascript/q ~query ~@sources))
+           ewen.cle-usb.data/IndexKeys
+           (~'get-index-keys ~params (datascript/analyze-q ~query ~@sources)))))))
 
 (comment
    (macroexpand-1 '(defquery my-query :cache true
@@ -56,14 +77,18 @@
                                       [(com.ewen.cle-usb.data/maybe $ ?id :password/height nil) ?height]]
                              data))
 
-   (do (def my-query (with-meta (fn [data]
-                                  (ds/q '[] data)))))
+   (def my-query (reify IFn
+                   (-invoke [_ data] (ds/q '[] data))
+                   ewen.cle-usb.data/IndexKeys
+                   (get-index-keys [_ data] (datascript/analyze-q '[] data))))
 
-   (do (let [cached-query (atom #{})]
-         (defn my-query
-                 ([] @cached-query)
-                 ([data] (reset! cached-query (ds/q '[] data)))))
-       (set! my-query (with-meta my-query {:index-keys-fn (fn [data] (ds/analyze-q my-query data))})))
+   (let [cached-query (atom #{})]
+     (defn my-query
+       (reify cljs.core/IFn
+         (-invoke [_] @cached-query)
+         (-invoke [_ data] (reset! cached-query (ds/q '[] data)))
+         ewen.cle-usb.data/IndexKeys
+         (get-index-keys [_ data] (datascript/analyze-q '[] data)))))
 
    )
 
