@@ -184,7 +184,6 @@
 
 
 
-
 (def password-dd
   (component-raw "password-dd"
                  {:render (fn []
@@ -224,8 +223,7 @@
                                           (map (fn [[dragging _ _ _ ]] {:dragging dragging}))
                                           first))
                   :componentWillMount (fn [{:keys [id]} _ {:keys [app]}]
-                                        (let [index-keys-fn (:index-keys-fn (meta data/get-passwords-dragging))
-                                              index-keys (index-keys-fn @app id)
+                                        (let [index-keys (data/get-index-keys data/get-passwords-dragging app id)
                                               comp *component*
                                               callback (fn [{:keys [tx-data]}]
                                                          (when-let [state (get-state comp)]
@@ -274,8 +272,7 @@
                                           (map (fn [[id sort-index]] {id {:sort-index sort-index}}))
                                           (apply merge)))
                   :componentWillMount (fn [_ _ {:keys [app]}]
-                                        (let [index-keys-fn (:index-keys-fn (meta data/get-password-ids-indexes))
-                                              index-keys (index-keys-fn @app)
+                                        (let [index-keys (data/get-index-keys data/get-password-ids-indexes app)
                                               comp *component*
                                               callback (fn [{:keys [tx-data]}]
                                                          (when-let [state (get-state comp)]

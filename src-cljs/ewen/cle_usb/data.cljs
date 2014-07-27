@@ -92,7 +92,7 @@ any values for attr."
               db)))
 
 
-(let [partial-maybe-index-keys #(union (maybe-index-keys % '?id :password/width)
+#_(let [partial-maybe-index-keys #(union (maybe-index-keys % '?id :password/width)
                                       (maybe-index-keys % '?id :password/height))]
   (defquery get-list-passwords :cache true
             [data] '[:find ?id ?label ?dragging ?sort-index
@@ -111,8 +111,17 @@ any values for attr."
                        (fn [data] (union (index-keys-fn data)
                                         (partial-maybe-index-keys data)))}))))
 
+(defquery get-list-passwords :cache true
+          [data] '[:find ?id ?label ?dragging ?sort-index
+                   :in $ ?maybe
+                   :where [?id :password/label ?label]
+                   [?id :state/dragging ?dragging]
+                   [?id :state/sort-index ?sort-index]
+                   [(?maybe $ ?id :password/width nil) ?width]
+                   [(?maybe $ ?id :password/height nil) ?height]] data maybe)
 
-(let [partial-maybe-index-keys #(union (maybe-index-keys % '?id :password/width)
+
+#_(let [partial-maybe-index-keys #(union (maybe-index-keys % '?id :password/width)
                                       (maybe-index-keys % '?id :password/height)
                                       (maybe-index-keys % '?id :password/pos))]
   (defquery get-passwords-dragging
@@ -132,6 +141,16 @@ any values for attr."
                      {:index-keys-fn
                        (fn [data] (union (index-keys-fn data)
                                          (partial-maybe-index-keys data)))}))))
+
+(defquery get-passwords-dragging
+          [data id] '[:find ?dragging ?pos ?width ?height
+                      :in $ ?id ?maybe
+                      :where
+                      [?id :state/dragging ?dragging]
+                      [(?maybe $ ?id :password/pos nil) ?pos]
+                      [(?maybe $ ?id :password/width nil) ?width]
+                      [(?maybe $ ?id :password/height nil) ?height]]
+          data id maybe)
 
 (defquery get-password-ids-indexes
           [data] '[:find ?id ?sort-index

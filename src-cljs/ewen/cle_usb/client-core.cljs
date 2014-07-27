@@ -38,12 +38,14 @@
 #_(client/request-render app)
 
 
+
 ;render
 (defn render-view [render-data load-chan]
   (render/request-render app
                          (:view render-data)
                          load-chan
                          (:data render-data)))
+
 
 
 
@@ -71,17 +73,17 @@
 
 (defmulti get-render-data (fn [data view] view))
 
-(defmethod get-render-data :home  [data view]
+(defmethod get-render-data :home [data view]
   (->> (data/get-list-passwords data)
        (map (fn [[id label dragging sort-index]]
               {:id          id
                :label       label
                :placeholder dragging
-               :sort-index sort-index}))
+               :sort-index  sort-index}))
        (sort-by :sort-index)
        vec))
 
-(defmethod get-render-data :new-password  [data view]
+(defmethod get-render-data :new-password [data view]
   {})
 
 
@@ -100,9 +102,7 @@
                                             load-ch)))]
   (ds/listen! app :view/current
               change-view-callback
-              (-> (meta data/get-current-view)
-                  :index-keys-fn
-                  (apply [@app]))))
+              (data/get-index-keys data/get-current-view app)))
 
 (comment
   (data/listen-for! app
