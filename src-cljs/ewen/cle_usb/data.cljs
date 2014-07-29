@@ -67,16 +67,23 @@
 
 
 
+(defn analyze->index-keys [{:keys [index-keys calls]}]
+  (let [calls-index-keys (for [[fct & params] calls]
+                           (when (implements? IndexKeys fct)
+                             (apply get-index-keys fct params)))]
+    (apply union (conj calls-index-keys index-keys))))
 
-(defn maybe
-  "Returns the value of attr for e, or if-not if e does not possess
-any values for attr."
-  [db e attr if-not]
-  (let [result (get (ds/entity db e) attr)]
-    (only result if-not)))
 
-(defn maybe-index-keys [db e attr]
-  #{[db :eavt e attr]})
+(def maybe (reify
+             cljs.core/IFn
+             (-invoke [this db e attr if-not]
+               (let [result (get (ds/entity db e) attr)]
+                 (or result if-not)))
+             IndexKeys
+             (get-index-keys [this db e attr if-not]
+               (->> (ds/pattern->index-keys [e attr nil nil])
+                    (into [db])
+                    (conj #{})))))
 
 
 
@@ -92,24 +99,6 @@ any values for attr."
               db)))
 
 
-#_(let [partial-maybe-index-keys #(union (maybe-index-keys % '?id :password/width)
-                                      (maybe-index-keys % '?id :password/height))]
-  (defquery get-list-passwords :cache true
-            [data] '[:find ?id ?label ?dragging ?sort-index
-                     :in $ ?maybe
-                     :where [?id :password/label ?label]
-                     [?id :state/dragging ?dragging]
-                     [?id :state/sort-index ?sort-index]
-                     [(?maybe $ ?id :password/width nil) ?width]
-                     [(?maybe $ ?id :password/height nil) ?height]] data maybe)
-  ;?maybe is a datascript request, thus it has index-keys associated to it. But analyze-q does not see it.
-  ;This is why we manually update the metadata
-  (let [index-keys-fn (:index-keys-fn (meta get-list-passwords))]
-    (set! get-list-passwords
-          (with-meta get-list-passwords
-                     {:index-keys-fn
-                       (fn [data] (union (index-keys-fn data)
-                                        (partial-maybe-index-keys data)))}))))
 
 (defquery get-list-passwords :cache true
           [data] '[:find ?id ?label ?dragging ?sort-index
@@ -121,26 +110,6 @@ any values for attr."
                    [(?maybe $ ?id :password/height nil) ?height]] data maybe)
 
 
-#_(let [partial-maybe-index-keys #(union (maybe-index-keys % '?id :password/width)
-                                      (maybe-index-keys % '?id :password/height)
-                                      (maybe-index-keys % '?id :password/pos))]
-  (defquery get-passwords-dragging
-            [data id] '[:find ?dragging ?pos ?width ?height
-                        :in $ ?id ?maybe
-                        :where
-                        [?id :state/dragging ?dragging]
-                        [(?maybe $ ?id :password/pos nil) ?pos]
-                        [(?maybe $ ?id :password/width nil) ?width]
-                        [(?maybe $ ?id :password/height nil) ?height]]
-            data id maybe)
-  ;?maybe is a datascript request, thus it has index-keys associated to it. But analyze-q does not see it.
-  ;This is why we manually update the metadata
-  (let [index-keys-fn (:index-keys-fn (meta get-list-passwords))]
-    (set! get-passwords-dragging
-          (with-meta get-passwords-dragging
-                     {:index-keys-fn
-                       (fn [data] (union (index-keys-fn data)
-                                         (partial-maybe-index-keys data)))}))))
 
 (defquery get-passwords-dragging
           [data id] '[:find ?dragging ?pos ?width ?height
@@ -151,6 +120,17 @@ any values for attr."
                       [(?maybe $ ?id :password/width nil) ?width]
                       [(?maybe $ ?id :password/height nil) ?height]]
           data id maybe)
+
+#_(def get-passwords-pos (reify
+             cljs.core/IFn
+             (-invoke [this db pwd-id]
+               (let [result (get (ds/entity db pwd-id) attr)]
+                 (or result if-not)))
+             IndexKeys
+             (get-index-keys [this db e attr if-not]
+               (->> (ds/pattern->index-keys [e attr nil nil])
+                    (into [db])
+                    (conj #{})))))
 
 (defquery get-password-ids-indexes
           [data] '[:find ?id ?sort-index

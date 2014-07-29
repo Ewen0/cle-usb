@@ -33,12 +33,14 @@
              (~'-invoke ~'[_] (cljs.core/deref cached-query#))
              (~'-invoke ~params (cljs.core/reset! cached-query# (datascript/q ~query ~@sources)))
              ewen.cle-usb.data/IndexKeys
-             (~'get-index-keys ~params (datascript/analyze-q ~query ~@sources)))))
+             (~'get-index-keys ~params (~'-> (datascript/analyze-q ~query ~@sources)
+                                        ewen.cle-usb.data/analyze->index-keys)))))
       `(def ~name
          (reify cljs.core/IFn
            (~'-invoke ~params (datascript/q ~query ~@sources))
            ewen.cle-usb.data/IndexKeys
-           (~'get-index-keys ~params (datascript/analyze-q ~query ~@sources)))))))
+           (~'get-index-keys ~params (~'-> (datascript/analyze-q ~query ~@sources)
+                                      ewen.cle-usb.data/analyze->index-keys)))))))
 
 (comment
    (macroexpand-1 '(defquery my-query :cache true

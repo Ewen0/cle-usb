@@ -88,7 +88,9 @@
             (= :componentWillUnmount method-key)
             {:componentWillUnmount (fn []
                                        (with-this (method
-                                                    (get-state *component*))))}))
+                                                    (get-props *component*)
+                                                    (get-state *component*)
+                                                    (get-statics *component*))))}))
 
 (defn bind-methods-args [methods-args]
       (->> (map bind-method-args methods-args)
@@ -122,10 +124,87 @@
 
 
 
+(def event-types
+  "A map from keywords to event types. Useful for multiplatform (desktop/mobile) compatibility."
+  (if (js* "'ontouchstart' in window")
+    {:down  "touchstart"
+     :up    "touchend"
+     :move  "touchmove"
+     :over  "touchstart"
+     :out   "touchend"
+     :click "tap"}
+    {:down  "mousedown"
+     :up    "mouseup"
+     :move  "mousemove"
+     :over  "mouseover"
+     :out   "mouseout"
+     :click "mouseclick"}))
+
+
+;Drag and drop
+(defn event->pos [e]
+  (if (.-changedTouches e)
+    {:x (-> e (.-changedTouches)
+            (.item 0)
+            (.-pageX))
+     :y (-> e (.-changedTouches)
+            (.item 0)
+            (.-pageY))}
+    {:x (.-pageX e) :y (.-pageY e)}))
+
+(defn g-pos->pos [g-pos]
+  {:x (.-x g-pos) :y (.-y g-pos)})
+
+(defn dd-down-callback [app id e]
+  (.preventDefault e)
+  (data/set-dragging! app id true)
+  (data/set-handle-pos! app id (let [init-pos (data/get-init-pos @app id)]
+                                 {:x (- (:x (event->pos e)) (:x init-pos))
+                                  :y (- (:y (event->pos e)) (:y init-pos))})))
+
+(defn dd-up-callback [app id]
+  (data/set-dragging! app id false)
+  (let [init-pos (:state/init-pos (ds/entity @app id))]
+    (data/set-pwd-pos! app id init-pos)))
+
+#_(defn merge-pos
+  [pos handle-pos init-pos]
+  {:x (+ (:x init-pos) (- (:x pos) (:x handle-pos)))
+   :y (+ (:y init-pos) (- (:y pos) (:y handle-pos)))})
+
+(defn merge-pos
+  [pos handle-pos]
+  {:x (- (:x pos) (:x handle-pos))
+   :y (- (:y pos) (:y handle-pos))})
+
+(defn dd-move-callback [app id e]
+  (.log js/console (str "move"))
+  (when (data/get-dragging @app id)
+    (let [handle-pos (-> (ds/entity @app id) :state/handle-pos)
+          _ (.log js/console (str (merge-pos (event->pos e)
+                                             handle-pos)))]
+      (data/set-pwd-pos! app id (merge-pos (event->pos e)
+                                           handle-pos)))))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ;The header react component
 (def header
   (component-raw "header"
-                 {:render (fn []
+                 {:render (fn [_ _ {:keys [app]}]
                             (html [:div#action-bar
                                    [:img#logo-action-bar
                                     {:src "img/logo_action_bar.png"}]
@@ -144,14 +223,31 @@
                                      {:role "menu"
                                       :aria-labelledby "dLabel"}
                                      [:li
-                                      [:a.home-link {:href "#"}
+                                      [:a.home-link {:href "#"
+                                                     :onClick #(data/set-view! app :home)}
                                        "Home"]
-                                      [:a.new-pwd-link {:href "#"}
+                                      [:a.new-pwd-link {:href "#"
+                                                        :onClick #(data/set-view! app :new-password)}
                                        "Add new password"]]]]]))}))
 
 
 
-
+(defn listen-password-label! [comp app pwd-id]
+  (let [index-keys #{[@app :eavt pwd-id :password/label]}
+        callback (fn [{:keys [tx-data]}]
+                   (let [state (atom (get-state comp))]
+                     (when @state
+                       (doseq [datom tx-data]
+                         (match [datom]
+                                [{:e     pwd-id
+                                  :a     :password/label
+                                  :v     label
+                                  :added true}] (reset! state label)
+                                :else nil))
+                       (replace-state! comp @state))))]
+    (ds/listen! app (:keyword (str "password-button-" pwd-id))
+                callback
+                index-keys)))
 
 
 (def password-button
@@ -162,32 +258,20 @@
                   :getInitialState (fn [{:keys [id]} {:keys [app]}]
                                      (:password/label (ds/entity @app id)))
                   :componentWillMount (fn [{:keys [id]} _ {:keys [app]}]
-                                        (let [comp *component*
-                                              index-keys #{[@app :eavt id :password/label]}
-                                              callback (fn [{:keys [tx-data]}]
-                                                         (let [state (atom (get-state comp))]
-                                                           (when @state
-                                                             (doseq [datom tx-data]
-                                                               (match [datom]
-                                                                      [{:e     id
-                                                                        :a     :password/label
-                                                                        :v     label
-                                                                        :added true}] (reset! state label)
-                                                                      :else nil))
-                                                             (replace-state! comp @state))))]
-                                          (ds/listen! app (str "password-button-" id)
-                                                      callback
-                                                      index-keys)))
-                  :componentWillUnmount (fn []              ;TODO unregister listener
-                                          )}))
+                                        (listen-password-label! *component* app id))
+                  :componentWillUnmount(fn [{:keys [id]} _ {:keys [app]}]
+                                         (ds/unlisten! app (:keyword (str "password-button-" id))))}))
 
 
 
 
 (def password-dd
   (component-raw "password-dd"
-                 {:render (fn []
+                 {:render (fn [{:keys [id]} _ {:keys [app]}]
                             (html [:div.pwd-dragdrop
+                                   {:onMouseDown #(dd-down-callback app id %)
+                                    :onMouseUp   #(dd-up-callback app id)
+                                    :onMouseMove #(dd-move-callback app id %)}
                                    [:img {:src "img/1_navigation_collapse.png"}]
                                    [:img {:src "img/1_navigation_expand.png"}]]))}))
 
@@ -198,67 +282,121 @@
                  {:render (fn [{:keys [id]} _ {:keys [app]}]
                             (html [:div.password
                                    (password-button {:id id} {:app app})
-                                   (password-dd)]))}))
+                                   (password-dd {:id id} {:app app})]))}))
 
+
+(defn listen-password-dragging! [comp app pwd-id]
+  (let [index-keys (data/get-index-keys data/get-passwords-dragging app pwd-id)
+        callback (fn [{:keys [tx-data]}]
+                   (when-let [state (get-state comp)]
+                     (let [state (transient state)]
+                       (doseq [datom tx-data]
+                         (match [datom]
+                                [{:e     pwd-id
+                                  :a     :state/dragging
+                                  :v     dragging
+                                  :added true}] (assoc! state :dragging dragging)
+                                [{:e     pwd-id
+                                  :a     :password/pos
+                                  :v     pos
+                                  :added true}] (assoc! state :pos pos)
+                                [{:e     pwd-id
+                                  :a     :password/width
+                                  :v     width
+                                  :added true}] (assoc! state :width width)
+                                [{:e     pwd-id
+                                  :a     :password/height
+                                  :v     height
+                                  :added true}] (assoc! state :height height)
+                                :else nil))
+                       (replace-state! comp (persistent! state)))))]
+    (ds/listen! app (keyword (str "password-dragging-" pwd-id))
+                callback
+                index-keys)))
+
+#_(defn listen-password-pos! [comp app pwd-id]
+  (let [index-keys (data/get-index-keys data/get-passwords-dragging app pwd-id)
+        callback (fn [{:keys [tx-data]}]
+                   (when-let [state (get-state comp)]
+                     (let [state (transient state)]
+                       (doseq [datom tx-data]
+                         (match [datom]
+                                [{:e     pwd-id
+                                  :a     :state/dragging
+                                  :v     dragging
+                                  :added true}] (assoc! state :dragging dragging)
+                                [{:e     pwd-id
+                                  :a     :password/pos
+                                  :v     pos
+                                  :added true}] (assoc! state :pos pos)
+                                [{:e     pwd-id
+                                  :a     :password/width
+                                  :v     width
+                                  :added true}] (assoc! state :width width)
+                                [{:e     pwd-id
+                                  :a     :password/height
+                                  :v     height
+                                  :added true}] (assoc! state :height height)
+                                :else nil))
+                       (replace-state! comp (persistent! state)))))]
+    (ds/listen! app (keyword (str "password-dragging-" pwd-id))
+                callback
+                index-keys)))
 
 (def placeholder
   (component-raw "placeholder"
                  {:render (fn [{:keys [id]}
                                {:keys [dragging pos width height] :as state}
                                {:keys [app]}]
-                            (let [pos (if (and (not dragging) pos)
+                            (let [pos (if (and dragging pos)
                                         {:position "absolute" :top (:y pos)}
                                         {:position "static" :z-index 0})
                                   dim (if width {:width width} {})
                                   dim (merge dim (if height {:height height} {}))
-                                  style (merge dim pos)]
+                                  style (merge dim pos)
+                                  _ (.log js/console (str style))]
                               (html [:div [:div {:style style}
                                            (password {:id id} {:app app})]
                                      ;Placeholder empty div. This is to avoid the whole list of passwords
                                      ;to move when a password switch to the dragging state.
-                                     (when (and (not dragging) pos)
-                                       [:div {:style (clj->js dim)}])])))
+                                     (when (and dragging pos)
+                                       [:div {:style (clj->js style)}])])))
                   :getInitialState (fn [{:keys [id]} {:keys [app]}]
                                      (->> (data/get-passwords-dragging @app id)
                                           (map (fn [[dragging _ _ _ ]] {:dragging dragging}))
                                           first))
                   :componentWillMount (fn [{:keys [id]} _ {:keys [app]}]
-                                        (let [index-keys (data/get-index-keys data/get-passwords-dragging app id)
-                                              comp *component*
-                                              callback (fn [{:keys [tx-data]}]
-                                                         (when-let [state (get-state comp)]
-                                                           (let [state (transient state)]
-                                                             (doseq [datom tx-data]
-                                                               (match [datom]
-                                                                      [{:e     id
-                                                                        :a     :state/dragging
-                                                                        :v     dragging
-                                                                        :added true}] (assoc! state :dragging dragging)
-                                                                      [{:e     id
-                                                                        :a     :password/pos
-                                                                        :v     pos
-                                                                        :added true}] (assoc! state :pos pos)
-                                                                      [{:e     id
-                                                                        :a     :password/width
-                                                                        :v     width
-                                                                        :added true}] (assoc! state :width width)
-                                                                      [{:e     id
-                                                                        :a     :password/height
-                                                                        :v     height
-                                                                        :added true}] (assoc! state :height height)
-                                                                      :else nil))
-                                                             (replace-state! comp (persistent! state)))))]
-                                          (ds/listen! app (keyword (str "password-dragging-" id))
-                                                      callback
-                                                      index-keys)))
+                                        (listen-password-dragging! *component* app id))
                   :componentDidMount (fn [{:keys [id]} _ {:keys [app]}]
                                        (let [node (.getDOMNode *component*)
                                              width (.-width (gstyle/getSize node))
-                                             height (.-height (gstyle/getSize node))]
-                                         (data/set-pwd-dims! app id width height)))
-                  :componentWillUnmount (fn []              ;TODO unregister listener
-                                          )}))
+                                             height (.-height (gstyle/getSize node))
+                                             init-pos (gstyle/getPosition node)]
+                                         (data/set-pwd-dims! app id width height)
+                                         (data/set-init-pos! app id (g-pos->pos init-pos))))
+                  :componentWillUnmount (fn [{:keys [id]} _ {:keys [app]}]
+                                          (ds/unlisten! app (keyword (str "password-dragging-" id))))}))
 
+
+(defn handle-new-sort-index! [id-indexes-map id new-sort-index]
+  (assoc! id-indexes-map id new-sort-index))
+
+(defn listen-passwords-ids-indexes! [comp app]
+  (let [index-keys (data/get-index-keys data/get-password-ids-indexes app)
+        callback (fn [{:keys [tx-data]}]
+                   (when-let [state (get-state comp)]
+                     (let [state (transient state)]
+                       (doseq [datom tx-data]
+                         (match [datom]
+                                [{:e     id
+                                  :a     :state/sort-index
+                                  :v     new-sort-index
+                                  :added true}] (handle-new-sort-index! state id new-sort-index)
+                                :else nil))
+                       (replace-state! comp (persistent! state)))))]
+    (ds/listen! app :passwords-ids-indexes
+                callback
+                index-keys)))
 
 (def passwords-list
   (component-raw "passwords-list"
@@ -272,24 +410,9 @@
                                           (map (fn [[id sort-index]] {id {:sort-index sort-index}}))
                                           (apply merge)))
                   :componentWillMount (fn [_ _ {:keys [app]}]
-                                        (let [index-keys (data/get-index-keys data/get-password-ids-indexes app)
-                                              comp *component*
-                                              callback (fn [{:keys [tx-data]}]
-                                                         (when-let [state (get-state comp)]
-                                                           (let [state (transient state)]
-                                                             (doseq [datom tx-data]
-                                                               (match [datom]
-                                                                      [{:e     id
-                                                                        :a     :state/sort-index
-                                                                        :v     new-sort-index
-                                                                        :added true}] (assoc! state id new-sort-index)
-                                                                      :else nil))
-                                                             (replace-state! comp (persistent! state)))))]
-                                          (ds/listen! app :passwords-ids-indexes
-                                                      callback
-                                                      index-keys)))
-                  :componentWillUnmount (fn []              ;TODO unregister listener
-                                          )}))
+                                        (listen-passwords-ids-indexes! *component* app))
+                  :componentWillUnmount (fn [_ _ {:keys [app]}]
+                                          (ds/unlisten! app :passwords-ids-indexes))}))
 
 
 
@@ -310,7 +433,7 @@
                                                         :type        "password"
                                                         :value       ""}]]
                                [:div.action-buttons [:input#new-password-button
-                                                     #_(assoc-if false
+                                                       #_(assoc-if false
                                                                {:type    "button"
                                                                 :value   "Validate"}
                                                                :disabled "disabled")]]
@@ -322,16 +445,16 @@
 
 
 ;Rendering functions for each pages
-(defmulti render-app (fn [app render-data view] view))
+(defmulti render-app (fn [app view] view))
 
-(defmethod render-app :home [app render-data view]
-           (render (header)
+(defmethod render-app :home [app view]
+           (render (header nil {:app app})
                      (-> (sel "#header") single-node))
-           (render (passwords-list render-data {:app app})
+           (render (passwords-list nil {:app app})
                      (-> (sel "#app") single-node)))
 
-(defmethod render-app :new-password [app render-data view]
-           (render (header)
+(defmethod render-app :new-password [app view]
+           (render (header nil {:app app})
                      (-> (sel "#header") single-node))
            (render (new-password)
                      (-> (sel "#app") single-node)))
@@ -344,19 +467,17 @@
       render-queued? (atom false)]
      (defn request-render
            "Render the given application state tree."
-           [app view load-mult render-data]
+           [app view]
            (if (compare-and-set! render-pending? false true)
              (.requestAnimationFrame js/window
                                      (fn []
-                                         (render-app app render-data view)
-                                         (go (async/>! (async/muxch* load-mult) {:view view :data render-data}))
+                                         (render-app app view)
                                          (while @render-queued?
-                                                (let [[render-data view] @render-queued?]
-                                                     (render-app app render-data view)
-                                                     (go (async/>! (async/muxch* load-mult) {:view view :data render-data}))
+                                                (let [view @render-queued?]
+                                                     (render-app app view)
                                                      (reset! render-queued? false)))
                                          (reset! render-pending? false)))
-             (reset! render-queued? [render-data view]))))
+             (reset! render-queued? view))))
 
 
 

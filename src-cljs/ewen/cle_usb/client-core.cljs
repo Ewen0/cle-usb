@@ -40,11 +40,8 @@
 
 
 ;render
-(defn render-view [render-data load-chan]
-  (render/request-render app
-                         (:view render-data)
-                         load-chan
-                         (:data render-data)))
+(defn render-view [view]
+  (render/request-render app view))
 
 
 
@@ -97,9 +94,7 @@
                                              (filter :added)
                                              first
                                              :v)]
-                               (render-view {:view view
-                                             :data (get-render-data @app view)}
-                                            load-ch)))]
+                               (render-view view)))]
   (ds/listen! app :view/current
               change-view-callback
               (data/get-index-keys data/get-current-view app)))
@@ -127,12 +122,8 @@
 
 
 
-(let [view (-> (data/get-current-view @app) data/only)
-      load-ch (data/view-load-channel @app)
-      data (get-render-data @app view)]
-  (render-view {:view view
-                :data data}
-               load-ch))
+(let [view (-> (data/get-current-view @app) data/only)]
+  (render-view view))
 
 
 
