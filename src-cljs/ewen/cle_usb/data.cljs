@@ -80,9 +80,9 @@
                (let [result (get (ds/entity db e) attr)]
                  (or result if-not)))
              IndexKeys
-             (get-index-keys [this db e attr if-not]
+             (get-index-keys [this conn e attr if-not]
                (->> (ds/pattern->index-keys [e attr nil nil])
-                    (into [db])
+                    (into [conn])
                     (conj #{})))))
 
 
@@ -111,24 +111,33 @@
 
 
 
-(defquery get-passwords-dragging
-          [data id] '[:find ?dragging ?pos ?width ?height
+(defquery get-passwords-dragging-metrics
+          [data id] '[:find ?dragging ?width ?height
                       :in $ ?id ?maybe
                       :where
                       [?id :state/dragging ?dragging]
-                      [(?maybe $ ?id :password/pos nil) ?pos]
                       [(?maybe $ ?id :password/width nil) ?width]
                       [(?maybe $ ?id :password/height nil) ?height]]
           data id maybe)
 
-#_(def get-passwords-pos (reify
+(def get-dragging (reify
+                         cljs.core/IFn
+                         (-invoke [this db pwd-id]
+                           (let [dragging (get (ds/entity db pwd-id) :state/dragging)]
+                             (or dragging false)))
+                         IndexKeys
+                         (get-index-keys [this db pwd-id]
+                           (->> (ds/pattern->index-keys [pwd-id :state/dragging nil nil])
+                                (into [db])
+                                (conj #{})))))
+
+(def get-password-pos (reify
              cljs.core/IFn
              (-invoke [this db pwd-id]
-               (let [result (get (ds/entity db pwd-id) attr)]
-                 (or result if-not)))
+               (get (ds/entity db pwd-id) :password/pos))
              IndexKeys
-             (get-index-keys [this db e attr if-not]
-               (->> (ds/pattern->index-keys [e attr nil nil])
+             (get-index-keys [this db pwd-id]
+               (->> (ds/pattern->index-keys [pwd-id :password/pos nil nil])
                     (into [db])
                     (conj #{})))))
 
@@ -136,6 +145,13 @@
           [data] '[:find ?id ?sort-index
                    :where [?id :password/label _]
                    [?id :state/sort-index ?sort-index]] data)
+
+
+(defquery get-password-ids-indexes-pos
+          [data] '[:find ?id ?sort-index ?pos
+                   :where [?id :state/sort-index ?sort-index]
+                   [?id :password/pos ?pos]] data)
+
 
 
 
@@ -149,11 +165,6 @@
             db)
        (reduce (fn [m [k v]] (merge m {(keyword k) v})) {})))
 
-#_(defn get-current-view [data]
-  (-> (ds/q '[:find ?view
-              :where [_ :view/current ?view]]
-            data)
-      only))
 
 (defquery get-current-view [data]
           '[:find ?view
@@ -175,11 +186,6 @@
   (ds/transact! app [{:db/id        pwd-id
                       :state/dragging dragging}]))
 
-(defn get-dragging [data pwd-id]
-  (-> (ds/q '[:find ?dragging :in $ ?pwd-id
-              :where [?pwd-id :state/dragging ?dragging]]
-            data pwd-id)
-      (only false)))
 
 (defn set-handle-pos! [app pwd-id pos]
   (ds/transact! app [{:db/id        pwd-id
@@ -196,10 +202,7 @@
                       :state/init-pos pos}]))
 
 (defn get-init-pos [data pwd-id]
-  (-> (ds/q '[:find ?pos :in $ ?pwd-id
-              :where [?pwd-id :state/init-pos ?pos]]
-            data pwd-id)
-      only))
+  (-> (ds/entity data pwd-id) :state/init-pos))
 
 
 

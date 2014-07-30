@@ -19,7 +19,7 @@
 
 (defn pos-in [item seq]
   (->> (conj seq item)
-      (sort-by #(.-y %))
+      (sort-by #(:y %))
       (#(index-in item %))))
 
 (defn rotate
@@ -61,13 +61,6 @@
     out-mult))
 
 (defn sortable-mult [in-map]
-
-  (extend-type goog.math/Coordinate
-    IEquiv
-    (-equiv [o other]
-      (and (instance? goog.math/Coordinate other)
-           (and (= (.-x o) (.-x other))
-                (= (.-y o) (.-y other))))))
 
   (let [out-chan (async/chan)
         out-mult (async/mult out-chan)
