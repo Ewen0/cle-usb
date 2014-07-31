@@ -172,8 +172,7 @@
   (prevent-default e)
   (data/set-dragging! app id true)
   (data/set-handle-pos! app id (let [init-pos (data/get-init-pos @app id)]
-                                 {:x (- (:x (event->pos e)) (:x init-pos))
-                                  :y (- (:y (event->pos e)) (:y init-pos))})))
+                                 (- (:y (event->pos e)) init-pos))))
 
 (defn dd-up-callback [app id]
   (data/set-dragging! app id false)
@@ -182,8 +181,7 @@
 
 (defn merge-pos
   [pos handle-pos]
-  {:x (- (:x pos) (:x handle-pos))
-   :y (- (:y pos) (:y handle-pos))})
+  (- (:y pos) handle-pos))
 
 (defn dd-move-callback [app id e]
   (when (data/get-dragging @app id)
@@ -390,7 +388,7 @@
                                {:keys [dragging width height pos] :as state}
                                {:keys [app]}]
                             (let [style-pos (if (and dragging pos)
-                                        {:position "absolute" :top (:y pos)}
+                                        {:position "absolute" :top pos}
                                         {:position "static" :z-index 0})
                                   dim (if width {:width width} {})
                                   dim (merge dim (if height {:height height} {}))
@@ -420,8 +418,8 @@
                                              height (.-height (gstyle/getSize node))
                                              init-pos (gstyle/getPosition node)]
                                          (data/set-pwd-dims! app id width height)
-                                         (data/set-init-pos! app id (g-pos->pos init-pos))
-                                         (data/set-pwd-pos! app id (g-pos->pos init-pos))))
+                                         (data/set-init-pos! app id (-> (g-pos->pos init-pos) :y))
+                                         (data/set-pwd-pos! app id (-> (g-pos->pos init-pos) :y))))
                   :componentWillUnmount (fn [{:keys [id]} _ {:keys [app]}]
                                           (ds/unlisten! app (keyword (str "password-dragging-" id)))
                                           (ds/unlisten! app (keyword (str "password-pos-" id))))}))
@@ -456,45 +454,57 @@
     [] vec-of-maps))
 
 (defn update-positions [vec-of-maps]
-  (let [positions (->> (map :pos vec-of-maps) (sort-by :y))]
+  (let [positions (->> (map :pos vec-of-maps) sort)]
     (map (fn [map pos] (assoc map :pos pos)) vec-of-maps positions)))
 
 
 (defn sort-pwds [pwd-sort]
-  (let [sorted (sort-by (comp :y :pos val) pwd-sort)
+  (let [sorted (sort-by (comp :pos val) pwd-sort)
         sorted (map (fn [[id {:keys [index pos]}] new-index]
                {id {:index new-index :pos pos}})
              sorted
              (range (count sorted)))]
     (into {} sorted)))
 
+(defn process-updated-index [new-sort-pwd diff]
+  (when (and (first diff) (second diff))
+      (let [old (->> (first diff)
+                     (filter (comp :index val))
+                     (into {}))
+            new (->> (first diff)
+                     (filter (comp :index val))
+                     (into {}))
+            updated-keys (clojure.set/intersection (-> old keys set)
+                                                   (-> new keys set))]
+        (when (not-empty updated-keys)
+          (select-keys new-sort-pwd updated-keys)))))
+
 (defn process-sortables [app]
   (let [pwd-sort-state (atom {})
-        ids-indexes-pos (data/get-password-ids-indexes-pos @app)
+        ids-pos (data/get-password-ids-indexes-pos @app)
         index-keys (data/get-index-keys data/get-password-ids-indexes-pos app)
-       callback (fn [{:keys [tx-data]}]
-                  (doseq [datom tx-data]
-                    (match [datom]
-                           [{:e     pwd-id
-                             :a     :password/pos
-                             :v     pos
-                             :added true}] (swap! pwd-sort-state update-in [pwd-id]
-                                                  assoc :pos pos)
-                           [{:e     pwd-id
-                             :a     :state/sort-index
-                             :v     index
-                             :added true}] (swap! pwd-sort-state update-in [pwd-id]
-                                                  assoc :index index)
-                           :else nil))
-                  (swap! pwd-sort-state sort-pwds))]
-    (doseq [[id index pos] ids-indexes-pos]
-      (swap! pwd-sort-state assoc id {:index index :pos pos}))
+        callback (fn [{:keys [tx-data]}]
+                   (doseq [datom tx-data]
+                     (match [datom]
+                            [{:e     pwd-id
+                              :a     :password/pos
+                              :v     pos
+                              :added true}] (swap! pwd-sort-state update-in [pwd-id]
+                                                   assoc :pos pos)
+                            :else nil))
+                   (swap! pwd-sort-state sort-pwds))]
+    (doseq [[id pos] ids-pos]
+      (swap! pwd-sort-state assoc id {:pos pos}))
+    (swap! pwd-sort-state sort-pwds)
     (ds/listen! app :passwords-sortable
                 callback
                 index-keys)
-    (add-watch pwd-sort-state :watch-sortable (fn [key ref old new] (.log js/console (str new))))))
+    (add-watch pwd-sort-state :watch-sortable
+               (fn [key ref old new]
+                 (->> (process-updated-index new (clojure.data/diff old new))
+                      (data/set-sort-indexes! app))))))
 
-
+#_({1 {:index 0}, 2 {:index 1}} {1 {:index 1}, 2 {:index 0}} {1 {:pos 123}, 2 {:pos 122}})
 
 
 

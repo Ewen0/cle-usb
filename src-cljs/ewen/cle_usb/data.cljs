@@ -141,16 +141,33 @@
                     (into [db])
                     (conj #{})))))
 
+(def get-password-pos (reify
+             cljs.core/IFn
+             (-invoke [this db pwd-id]
+               (get (ds/entity db pwd-id) :password/pos))
+             IndexKeys
+             (get-index-keys [this db pwd-id]
+               (->> (ds/pattern->index-keys [pwd-id :password/pos nil nil])
+                    (into [db])
+                    (conj #{})))))
+
 (defquery get-password-ids-indexes
           [data] '[:find ?id ?sort-index
                    :where [?id :password/label _]
                    [?id :state/sort-index ?sort-index]] data)
 
+(defquery get-password-ids
+          [data] '[:find ?id
+                   :where [?id :password/label _]] data)
 
 (defquery get-password-ids-indexes-pos
-          [data] '[:find ?id ?sort-index ?pos
-                   :where [?id :state/sort-index ?sort-index]
-                   [?id :password/pos ?pos]] data)
+          [data] '[:find ?id ?pos
+                   :where [?id :password/pos ?pos]] data)
+
+(defquery get-password-indexes
+          [data] '[:find ?sort-index
+                   :where [?id :state/sort-index ?sort-index]] data)
+
 
 
 
@@ -227,10 +244,9 @@
                       :password/pos pos}]))
 
 (defn set-sort-indexes! [app sort-indexes]
-  (ds/transact! app (-> (map (fn [m]
-                               {:db/id (:id m)
-                                :state/sort-index (:index m)
-                                :state/init-pos (:pos m)})
+  (ds/transact! app (-> (map (fn [[id {:keys [index]}]]
+                               {:db/id id
+                                :state/sort-index index})
                              sort-indexes)
                         vec)))
 
