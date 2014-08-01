@@ -91,12 +91,6 @@
 
 
 
-(defn view-load-channel [db]
-  (only (ds/q '[:find ?mult
-                :where
-                [?id :channel/source :page-load]
-                [?id :channel/mult ?mult]]
-              db)))
 
 
 
@@ -243,11 +237,11 @@
   (ds/transact! app [{:db/id        pwd-id
                       :password/pos pos}]))
 
-(defn set-sort-indexes! [app sort-indexes]
-  (ds/transact! app (-> (map (fn [[id {:keys [index]}]]
+(defn set-sort-indexes! [app indexes]
+  (ds/transact! app (-> (map (fn [[id {:keys [sort-index]}]]
                                {:db/id id
-                                :state/sort-index index})
-                             sort-indexes)
+                                :state/sort-index sort-index})
+                             indexes)
                         vec)))
 
 (defn set-pwd-label! [app pwd-id label]
@@ -264,28 +258,35 @@
 
 
 
-;Listeners
+;Add / remove passwords
 
-(defn match-id-and-attr? [datom e a]
-  (and (= (:e datom) e)
-       (= (:a datom) a)))
+(defn get-ids-from [db from]
+  (ds/q '[:find ?id ?index
+          :in $ ?from
+          :where [?id :state/sort-index ?index]
+          [(>= ?index ?from)]]
+        db from))
 
-(defn match-attr? [datom a]
-  (= (:a datom) a))
+(defn update-sort-indexes-from [db from inc-or-dec]
+  (let [ids-indexes (get-ids-from db from)]
+    (vec (for [[id index] ids-indexes]
+           {:db/id            id
+            :state/sort-index (inc-or-dec index)}))))
 
-(defn listen-for!
-  ([app attr callback-name callback]
-   (ds/listen! app callback-name
-               (fn [tx-report]
-                 (some #(when (match-attr? % attr)
-                         (callback (:e %) (:v %)))
-                       (:tx-data tx-report)))))
-  ([app ent-id attr callback-name callback]
-   (ds/listen! app callback-name
-               (fn [tx-report]
-                 (some #(when (match-id-and-attr? % ent-id attr)
-                         (callback (:v %)))
-                       (:tx-data tx-report))))))
+(defn add-password! [app label index]
+  (ds/transact! app [{:db/id          -1
+                      :password/label label
+                      :state/sort-index index}
+                     [:db.fn/call update-sort-indexes-from index inc]]))
+
+(defn update-sort-indexes-rem [db id]
+  (let [from (-> (ds/entity db id) :state/sort-index)]
+    [[:db.fn/call update-sort-indexes-from from dec]]))
+
+(defn rem-password! [app id]
+  (ds/transact! app [[:db.fn/retractEntity id]
+                     [:db.fn/call update-sort-indexes-rem id]]))
+
 
 
 

@@ -4,7 +4,7 @@
             [domina.css :refer [sel]]
             [domina.events :refer [listen! unlisten!
                                    prevent-default raw-event
-                                   listen-once!]]
+                                   listen-once! current-target]]
             [cljs.core.async :as async]
             [ewen.async-plus :as async+]
             [sablono.core :as html :refer-macros [html html-expand]]
@@ -82,14 +82,20 @@
             {:componentWillUpdate (fn [next-props next-state]
                                       (with-this
                                         (method
+                                          (get-props *component*)
+                                          (get-state *component*)
                                           (aget next-props (keyword->string ::props))
-                                          (aget next-state (keyword->string ::state)))))}
+                                          (aget next-state (keyword->string ::state))
+                                          (get-statics *component*))))}
             (= :componentDidUpdate method-key)
             {:componentDidUpdate (fn [prev-props prev-state]
                                      (with-this
                                        (method
                                          (aget prev-props (keyword->string ::props))
-                                         (aget prev-state (keyword->string ::state)))))}
+                                         (aget prev-state (keyword->string ::state))
+                                         (get-props *component*)
+                                         (get-state *component*)
+                                         (get-statics *component*))))}
             (= :componentWillUnmount method-key)
             {:componentWillUnmount (fn []
                                        (with-this (method
@@ -175,9 +181,7 @@
                                  (- (:y (event->pos e)) init-pos))))
 
 (defn dd-up-callback [app id]
-  (data/set-dragging! app id false)
-  (let [init-pos (:state/init-pos (ds/entity @app id))]
-    (data/set-pwd-pos! app id init-pos)))
+  (data/set-dragging! app id false))
 
 (defn merge-pos
   [pos handle-pos]
@@ -422,7 +426,14 @@
                                          (data/set-pwd-pos! app id (-> (g-pos->pos init-pos) :y))))
                   :componentWillUnmount (fn [{:keys [id]} _ {:keys [app]}]
                                           (ds/unlisten! app (keyword (str "password-dragging-" id)))
-                                          (ds/unlisten! app (keyword (str "password-pos-" id))))}))
+                                          (ds/unlisten! app (keyword (str "password-pos-" id))))
+                  :componentDidUpdate (fn [_ old-state {:keys [id]} new-state {:keys [app]}]
+                                        (when (and (:dragging old-state)
+                                                   (not (:dragging new-state)))
+                                          (let [node (.getDOMNode *component*)
+                                                init-pos (gstyle/getPosition node)]
+                                            (data/set-init-pos! app id (-> (g-pos->pos init-pos) :y))
+                                            (data/set-pwd-pos! app id (-> (g-pos->pos init-pos) :y)))))}))
 
 
 
@@ -450,7 +461,7 @@
 (defn assoc-index [vec-of-maps]
   (reduce
     (fn [ret m]
-      (conj ret (assoc m :index (+ 1 (or (:index (last ret)) -1)))))
+      (conj ret (assoc m :sort-index (+ 1 (or (:sort-index (last ret)) -1)))))
     [] vec-of-maps))
 
 (defn update-positions [vec-of-maps]
@@ -460,8 +471,8 @@
 
 (defn sort-pwds [pwd-sort]
   (let [sorted (sort-by (comp :pos val) pwd-sort)
-        sorted (map (fn [[id {:keys [index pos]}] new-index]
-               {id {:index new-index :pos pos}})
+        sorted (map (fn [[id {:keys [sort-index pos]}] new-index]
+               {id {:sort-index new-index :pos pos}})
              sorted
              (range (count sorted)))]
     (into {} sorted)))
@@ -469,10 +480,10 @@
 (defn process-updated-index [new-sort-pwd diff]
   (when (and (first diff) (second diff))
       (let [old (->> (first diff)
-                     (filter (comp :index val))
+                     (filter (comp :sort-index val))
                      (into {}))
             new (->> (first diff)
-                     (filter (comp :index val))
+                     (filter (comp :sort-index val))
                      (into {}))
             updated-keys (clojure.set/intersection (-> old keys set)
                                                    (-> new keys set))]
@@ -531,13 +542,24 @@
                 callback
                 index-keys)))
 
+
+(defn process-updated-index2 [diff]
+  (when (and (first diff) (second diff))
+    (let [old (->> (first diff)
+                   (filter (comp :sort-index val))
+                   (into {}))
+          new (->> (first diff)
+                   (filter (comp :sort-index val))
+                   (into {}))]
+      (clojure.set/intersection (-> old keys set)
+                                (-> new keys set)))))
+
 (def passwords-list
   (component-raw "passwords-list"
                  {:render (fn [_ state {:keys [app]}]
-                            (.log js/console (str (sort-by (comp :sort-index second) state)))
                             (html [:div#list-pwd
                                    (map (fn [[id _]]
-                                          (placeholder {:id id} {:app app} {:key id}))
+                                          (placeholder {:id id} {:app app} {:key id :ref id}))
                                         (sort-by (comp :sort-index second) state))]))
                   :getInitialState (fn [_ {:keys [app]}]
                                      (->> (data/get-password-ids-indexes @app)
@@ -549,7 +571,17 @@
                   :componentWillUnmount (fn [_ state {:keys [app]}]
                                           (ds/unlisten! app :passwords-ids-indexes)
                                           (doseq [[id _] state]
-                                            (ds/unlisten! app :passwords-sortable)))}))
+                                            (ds/unlisten! app :passwords-sortable)))
+                  :componentDidUpdate (fn [_ old-state _ new-state {:keys [app]}]
+                                        (let [updated-keys (process-updated-index2
+                                                             (clojure.data/diff old-state new-state))]
+                                          (doseq [key updated-keys]
+                                            (when-not (-> (ds/entity @app key) :state/dragging)
+                                              (let [init-pos (-> (aget (.-refs *component*) key)
+                                                                 (.getDOMNode)
+                                                                 gstyle/getPosition)]
+                                                (data/set-init-pos! app key (-> (g-pos->pos init-pos) :y))
+                                                (data/set-pwd-pos! app key (-> (g-pos->pos init-pos) :y)))))))}))
 
 
 

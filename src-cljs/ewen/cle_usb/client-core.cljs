@@ -88,8 +88,7 @@
 
 
 
-(let [load-ch (data/view-load-channel @app)
-      change-view-callback (fn [tx-report]
+(let [change-view-callback (fn [tx-report]
                              (let [view (->> (:tx-data tx-report)
                                              (filter :added)
                                              first
