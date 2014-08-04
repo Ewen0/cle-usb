@@ -7,7 +7,7 @@
                                    listen-once! current-target]]
             [cljs.core.async :as async]
             [ewen.async-plus :as async+]
-            [sablono.core :as html :refer-macros [html html-expand]]
+            [sablono.core :refer-macros [html html-expand]]
             [datascript :as ds]
             [clojure.string]
             [cljs.core.match]
@@ -45,74 +45,83 @@
   (-> comp .-props (aget (keyword->string ::statics))))
 
 
+(defn bind-lifecycle-method-args [[method-key method]]
+  (cond (= :getInitialState method-key)
+        {:getInitialState (fn [] (with-this
+                                   (let [init-state (method
+                                                      (get-props *component*)
+                                                      (get-statics *component*))]
+                                     (js-obj (keyword->string ::state) init-state))))}
+        (= :getDefaultProps method-key)
+        {:getDefaultProps (fn [] (with-this (method)))}
+        (= :componentWillMount method-key)
+        {:componentWillMount (fn []
+                               (with-this
+                                 (method
+                                   (get-props *component*)
+                                   (get-state *component*)
+                                   (get-statics *component*))))}
+        (= :componentDidMount method-key)
+        {:componentDidMount (fn []
+                              (with-this
+                                (method
+                                  (get-props *component*)
+                                  (get-state *component*)
+                                  (get-statics *component*))))}
+        (= :componentWillUpdate method-key)
+        {:componentWillUpdate (fn [next-props next-state]
+                                (with-this
+                                  (method
+                                    (get-props *component*)
+                                    (aget next-props (keyword->string ::props))
+                                    (get-state *component*)
+                                    (aget next-state (keyword->string ::state))
+                                    (get-statics *component*))))}
+        (= :componentDidUpdate method-key)
+        {:componentDidUpdate (fn [prev-props prev-state]
+                               (with-this
+                                 (method
+                                   (aget prev-props (keyword->string ::props))
+                                   (get-props *component*)
+                                   (aget prev-state (keyword->string ::state))
+                                   (get-state *component*)
+                                   (get-statics *component*))))}
+        (= :componentWillUnmount method-key)
+        {:componentWillUnmount (fn []
+                                 (with-this (method
+                                              (get-props *component*)
+                                              (get-state *component*)
+                                              (get-statics *component*))))}
+        (= :componentWillReceiveProps method-key)
+        {:componentWillReceiveProps (fn [next-props]
+                                      (with-this (method
+                                                   next-props
+                                                   (get-props *component*)
+                                                   (get-state *component*)
+                                                   (get-statics *component*))))}
+        :else {method-key method}))
 
-(defn bind-method-args [[method-key method]]
-      (cond (= :shouldComponentUpdate method-key)
-            {:shouldComponentUpdate method}
-            (= :render method-key)
-            {:render (fn []
-                         (with-this
-                           (method
-                             (get-props *component*)
-                             (get-state *component*)
-                             (get-statics *component*))))}
-            (= :getInitialState method-key)
-            {:getInitialState (fn [] (with-this
-                                       (let [init-state (method
-                                               (get-props *component*)
-                                               (get-statics *component*))]
-                                         (js-obj (keyword->string ::state) init-state))))}
-            (= :getDefaultProps method-key)
-            {:getDefaultProps (fn [] (with-this (method)))}
-            (= :componentWillMount method-key)
-            {:componentWillMount (fn []
-                                   (with-this
-                                     (method
-                                       (get-props *component*)
-                                       (get-state *component*)
-                                       (get-statics *component*))))}
-            (= :componentDidMount method-key)
-            {:componentDidMount (fn []
-                                    (with-this
-                                      (method
-                                        (get-props *component*)
-                                        (get-state *component*)
-                                        (get-statics *component*))))}
-            (= :componentWillUpdate method-key)
-            {:componentWillUpdate (fn [next-props next-state]
-                                      (with-this
-                                        (method
-                                          (get-props *component*)
-                                          (get-state *component*)
-                                          (aget next-props (keyword->string ::props))
-                                          (aget next-state (keyword->string ::state))
-                                          (get-statics *component*))))}
-            (= :componentDidUpdate method-key)
-            {:componentDidUpdate (fn [prev-props prev-state]
-                                     (with-this
-                                       (method
-                                         (aget prev-props (keyword->string ::props))
-                                         (aget prev-state (keyword->string ::state))
-                                         (get-props *component*)
-                                         (get-state *component*)
-                                         (get-statics *component*))))}
-            (= :componentWillUnmount method-key)
-            {:componentWillUnmount (fn []
-                                       (with-this (method
-                                                    (get-props *component*)
-                                                    (get-state *component*)
-                                                    (get-statics *component*))))}
-            (= :componentWillReceiveProps method-key)
-            {:componentWillReceiveProps (fn [next-props]
-                                          (with-this (method
-                                                       next-props
-                                                       (get-props *component*)
-                                                       (get-state *component*)
-                                                       (get-statics *component*))))}))
+(defn bind-other-method-args [[method-key method]]
+  (cond (= :shouldComponentUpdate method-key)
+        {:shouldComponentUpdate method}
+        (= :render method-key)
+        {:render (fn []
+                   (with-this
+                     (method
+                       (get-props *component*)
+                       (get-state *component*)
+                       (get-statics *component*))))}
+        :else {method-key method}))
 
-(defn bind-methods-args [methods-args]
-      (->> (map bind-method-args methods-args)
+(defn bind-methods-args-comp [methods-args]
+      (->> (map bind-lifecycle-method-args methods-args)
+           (apply merge)
+           (map bind-other-method-args)
            (apply merge)))
+
+(defn bind-methods-args-mixin [methods-args]
+  (->> (map bind-lifecycle-method-args methods-args)
+       (apply merge)))
 
 (defn map->js-obj [in-map]
       (apply js-obj (mapcat (fn [[k v]] [(keyword->string k) v]) in-map)))
@@ -126,11 +135,15 @@
                                                      (not= (get-props this) next-props))))
                          :displayName name}
         methods-map (merge default-methods methods-map)
-        methods-map (bind-methods-args methods-map)
+        methods-map (bind-methods-args-comp methods-map)
         react-component (.createClass js/React (clj->js methods-map))]
     (fn [props statics react-keys]
       (react-component (->> (merge {::props props ::statics statics} react-keys)
                             map->js-obj)))))
+
+(defn mixin [methods-map]
+  (let [methods-map (bind-methods-args-mixin methods-map)]
+    (map->js-obj methods-map)))
 
 
 
@@ -284,64 +297,64 @@
                                          (ds/unlisten! app (:keyword (str "password-button-" id))))}))
 
 
-(defn listen-password-dragging-helper! [app pwd-id callback key]
+(defn listen-dragging-helper! [app pwd-id callback key]
   (let [index-keys (data/get-index-keys data/get-dragging app pwd-id)]
     (ds/listen! app key callback index-keys)))
 
-(defn listen-password-dragging! [app pwd-id start-or-stop callback]
+(defn listen-dragging! [app id start-or-stop callback]
   (let [start-or-stop-bool (= :start start-or-stop)]
-    (listen-password-dragging-helper! app pwd-id
+    (listen-dragging-helper! app id
                                (fn [{:keys [tx-data]}]
                                  (doseq [datom tx-data]
                                    (match [datom]
-                                          [{:e     pwd-id
+                                          [{:e     id
                                             :a     :state/dragging
                                             :v     start-or-stop-bool
                                             :added true}] (callback)
                                           :else nil)))
-                               (keyword (str "dragging-" pwd-id "-" (name start-or-stop))))))
+                               (keyword (str "dragging-" id "-" (name start-or-stop))))))
 
-(defn unlisten-password-dragging! [app pwd-id start-or-stop]
+(defn unlisten-dragging! [app pwd-id start-or-stop]
   (ds/unlisten! app (keyword (str "dragging-" pwd-id "-" (name start-or-stop)))))
 
-(def password-dd
-  (component-raw "password-dd"
+(def dd-handle-mixin
+  (mixin
+    {:componentDidMount (fn [{:keys [id]} _ {:keys [app]}]
+                          (listen! (.getDOMNode *component*)
+                                   (:down event-types)
+                                   #(dd-down-callback app id %))
+                          (listen-dragging! app id :start
+                                                     (fn []
+                                                       (listen! (:move event-types)
+                                                                #(dd-move-callback app id %))
+                                                       (listen! (:up event-types)
+                                                                #(dd-up-callback app id))))
+                          (listen-dragging! app id :stop
+                                                     (fn []
+                                                       (unlisten! domina/root-element (:move event-types))
+                                                       (unlisten! domina/root-element (:up event-types)))))
+
+     :componentWillUnmount (fn [{:keys [id]} _ {:keys [app]}]
+                             (unlisten! (.getDOMNode *component*)
+                                        (:down event-types))
+                             (unlisten-dragging! app id :start)
+                             (unlisten-dragging! app id :stop))}))
+
+(def password-handle
+  (component-raw "password-handle"
                  {:render (fn []
                             (html [:div.pwd-dragdrop
                                    [:img {:src "img/1_navigation_collapse.png"}]
                                    [:img {:src "img/1_navigation_expand.png"}]]))
-                  :componentDidMount (fn [{:keys [id]} _ {:keys [app]}]
-                                       (listen! (.getDOMNode *component*)
-                                                (:down event-types)
-                                                #(dd-down-callback app id %))
-                                       (listen-password-dragging! app id :start
-                                                                  (fn []
-                                                                    (listen! (:move event-types)
-                                                                             #(dd-move-callback app id %))
-                                                                    (listen! (:up event-types)
-                                                                             #(dd-up-callback app id))))
-                                       (listen-password-dragging! app id :stop
-                                                                  (fn []
-                                                                    (unlisten! domina/root-element (:move event-types))
-                                                                    (unlisten! domina/root-element (:up event-types)))))
-                  :componentWillUnmount (fn [{:keys [id]} _ {:keys [app]}]
-                                          (unlisten! (.getDOMNode *component*)
-                                                     (:down event-types))
-                                          (unlisten-password-dragging! app id :start)
-                                          (unlisten-password-dragging! app id :stop))}))
+                  :mixins #js [dd-handle-mixin]}))
 
 
 
-(def password
-  (component-raw "password"
-                 {:render (fn [{:keys [id]} _ {:keys [app]}]
-                            (html [:div.password
-                                   (password-button {:id id} {:app app})
-                                   (password-dd {:id id} {:app app})]))}))
 
 
-(defn listen-password-dragging-metrics! [comp app pwd-id]
-  (let [index-keys (data/get-index-keys data/get-passwords-dragging-metrics app pwd-id)
+
+(defn listen-password-dragging! [comp app pwd-id]
+  (let [index-keys (data/get-index-keys data/get-dragging app pwd-id)
         callback (fn [{:keys [tx-data]}]
                    (when-let [state (get-state comp)]
                      (let [state (transient state)]
@@ -351,18 +364,6 @@
                                   :a     :state/dragging
                                   :v     dragging
                                   :added true}] (assoc! state :dragging dragging)
-                                [{:e     pwd-id
-                                  :a     :password/pos
-                                  :v     pos
-                                  :added true}] (assoc! state :pos pos)
-                                [{:e     pwd-id
-                                  :a     :password/width
-                                  :v     width
-                                  :added true}] (assoc! state :width width)
-                                [{:e     pwd-id
-                                  :a     :password/height
-                                  :v     height
-                                  :added true}] (assoc! state :height height)
                                 :else nil))
                        (replace-state! comp (persistent! state)))))]
     (ds/listen! app (keyword (str "password-dragging-" pwd-id))
@@ -386,54 +387,82 @@
                 callback
                 index-keys)))
 
+(def dd-target-mixin-render
+  (fn [{:keys [id]}
+       {:keys [dragging pos] :as state}
+       {:keys [app]}
+       render-comp]
+    (let [node (when (.isMounted *component*) (.getDOMNode *component*))
+          width (if node (.-width (gstyle/getSize node)) nil)
+          height (if node (.-height (gstyle/getSize node)) nil)
+          style-pos (if (and dragging pos)
+                      {:position "absolute" :top pos}
+                      {:position "static" :z-index 0})
+          dim (if width {:width width} {})
+          dim (merge dim (if height {:height height} {}))
+          style (merge dim style-pos)]
+      (.cloneWithProps js/React.addons render-comp (clj->js {:style style})))))
+
+(def dd-target-mixin
+  (mixin
+    {:getInitialState (fn [{:keys [id]} {:keys [app]}]
+                        {:dragging (data/get-dragging @app id)})
+     :componentWillMount (fn [{:keys [id]} _ {:keys [app]}]
+                           (listen-password-dragging! *component* app id)
+                           (listen-password-pos! *component* app id))
+     :componentWillUnmount (fn [{:keys [id]} _ {:keys [app]}]
+                             (ds/unlisten! app (keyword (str "password-dragging-" id)))
+                             (ds/unlisten! app (keyword (str "password-pos-" id))))
+     :componentDidMount (fn [{:keys [id]} _ {:keys [app]}]
+                          (let [node (.getDOMNode *component*)
+                                init-pos (gstyle/getPosition node)]
+                            (data/set-init-pos! app id (-> (g-pos->pos init-pos) :y))
+                            (data/set-pwd-pos! app id (-> (g-pos->pos init-pos) :y))))
+     :componentDidUpdate (fn [_ {:keys [id]} old-state new-state {:keys [app]}]
+                           (when (and (:dragging old-state)
+                                      (not (:dragging new-state)))
+                             (let [node (.getDOMNode *component*)
+                                   init-pos (gstyle/getPosition node)]
+                               (data/set-init-pos! app id (-> (g-pos->pos init-pos) :y))
+                               (data/set-pwd-pos! app id (-> (g-pos->pos init-pos) :y)))))}))
+
+(def password
+  (component-raw "password"
+                 {:render (fn [{:keys [id]}
+                               {:keys [dragging pos] :as state}
+                               {:keys [app]}]
+                            (->> (html [:div.password
+                                        (password-button {:id id} {:app app})
+                                        (password-handle {:id id} {:app app})])
+                                 (dd-target-mixin-render {:id id}
+                                                  {:dragging dragging :pos pos}
+                                                  {:app app})))
+                  :mixins #js [dd-target-mixin]}))
+
+
+
+
 (def placeholder
   (component-raw "placeholder"
                  {:render (fn [{:keys [id]}
-                               {:keys [dragging width height pos] :as state}
+                               {:keys [dragging] :as state}
                                {:keys [app]}]
-                            (let [style-pos (if (and dragging pos)
-                                        {:position "absolute" :top pos}
-                                        {:position "static" :z-index 0})
+                            (let [node (when (.isMounted *component*) (.getDOMNode *component*))
+                                  width (if node (.-width (gstyle/getSize node)) nil)
+                                  height (if node (.-height (gstyle/getSize node)) nil)
                                   dim (if width {:width width} {})
-                                  dim (merge dim (if height {:height height} {}))
-                                  style (merge dim style-pos)]
-                              (html [:div [:div {:style style}
-                                           (password {:id id} {:app app})]
+                                  dim (merge dim (if height {:height height} {}))]
+                              (html [:div (password {:id id} {:app app})
                                      ;Placeholder empty div. This is to avoid the whole list of passwords
                                      ;to move when a password switch to the dragging state.
-                                     (when (and dragging pos)
+                                     (when dragging
                                        [:div {:style (clj->js dim)}])])))
                   :getInitialState (fn [{:keys [id]} {:keys [app]}]
-                                     (let [not-nil? (complement nil?)
-                                           result->map (fn [[dragging width height]] {:dragging dragging
-                                                                                      :width    width
-                                                                                      :height   height})]
-                                       (->> (data/get-passwords-dragging-metrics @app id)
-                                            first
-                                            result->map
-                                            (filter #(-> % val not-nil?))
-                                            (into {}))))
+                                     {:dragging (data/get-dragging @app id)})
                   :componentWillMount (fn [{:keys [id]} _ {:keys [app]}]
-                                        (listen-password-dragging-metrics! *component* app id)
-                                        (listen-password-pos! *component* app id))
-                  :componentDidMount (fn [{:keys [id]} _ {:keys [app]}]
-                                       (let [node (.getDOMNode *component*)
-                                             width (.-width (gstyle/getSize node))
-                                             height (.-height (gstyle/getSize node))
-                                             init-pos (gstyle/getPosition node)]
-                                         (data/set-pwd-dims! app id width height)
-                                         (data/set-init-pos! app id (-> (g-pos->pos init-pos) :y))
-                                         (data/set-pwd-pos! app id (-> (g-pos->pos init-pos) :y))))
+                                        (listen-password-dragging! *component* app id))
                   :componentWillUnmount (fn [{:keys [id]} _ {:keys [app]}]
-                                          (ds/unlisten! app (keyword (str "password-dragging-" id)))
-                                          (ds/unlisten! app (keyword (str "password-pos-" id))))
-                  :componentDidUpdate (fn [_ old-state {:keys [id]} new-state {:keys [app]}]
-                                        (when (and (:dragging old-state)
-                                                   (not (:dragging new-state)))
-                                          (let [node (.getDOMNode *component*)
-                                                init-pos (gstyle/getPosition node)]
-                                            (data/set-init-pos! app id (-> (g-pos->pos init-pos) :y))
-                                            (data/set-pwd-pos! app id (-> (g-pos->pos init-pos) :y)))))}))
+                                          (ds/unlisten! app (keyword (str "password-dragging-" id))))}))
 
 
 
@@ -572,7 +601,7 @@
                                           (ds/unlisten! app :passwords-ids-indexes)
                                           (doseq [[id _] state]
                                             (ds/unlisten! app :passwords-sortable)))
-                  :componentDidUpdate (fn [_ old-state _ new-state {:keys [app]}]
+                  :componentDidUpdate (fn [_ _ old-state new-state {:keys [app]}]
                                         (let [updated-keys (process-updated-index2
                                                              (clojure.data/diff old-state new-state))]
                                           (doseq [key updated-keys]
