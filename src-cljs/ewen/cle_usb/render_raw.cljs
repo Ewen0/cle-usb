@@ -583,6 +583,19 @@
       (clojure.set/intersection (-> old keys set)
                                 (-> new keys set)))))
 
+#_(defn fill-gaps [in-map]
+  (->> (sort-by (comp :sort-index second) in-map)
+    (map (fn [[key {:keys [sort-index]}] i] ) in-map (range (count in-map)))
+    (into {})))
+
+#_(def sortable-mixin
+  (fn [ids]
+    (mixin
+      {:getInitialState (fn [_ {:keys [app]}]
+                          (let [db @app]
+                            (map (fn [id] {id {:sort-index (-> (ds/entity db id)
+                                                               :state/sort-index)}}))))})))
+
 (def passwords-list
   (component-raw "passwords-list"
                  {:render (fn [_ state {:keys [app]}]
