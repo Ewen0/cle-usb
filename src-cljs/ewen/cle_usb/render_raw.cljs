@@ -572,6 +572,51 @@
                 index-keys)))
 
 
+
+
+(defn compare* [x y]
+  (let [not-nil? (comp not nil?)]
+    (cond
+      (and (nil? x) (not-nil? y)) 1
+      (and (nil? y) (not-nil? x)) -1
+      :else (compare x y))))
+
+
+(defn normalize-sort-indexes [in-map]
+  (->> (sort-by (comp :sort-index second) compare* in-map)
+       (map (fn [i [key {:keys [sort-index]}]] [key {:sort-index i}]) (range (count in-map)))
+       (into {})))
+
+(defn sortable-add-ids! [comp db ids]
+  (when-let [state (get-state comp)]
+    (let [state (transient state)]
+             (doseq [id ids]
+               (let [index (-> (ds/entity db id)
+                               :state/sort-index)]
+                 (assoc! state id {:state/sort-index index})))
+             (->> (persistent! state)
+                 normalize-sort-indexes
+                 (replace-state! comp)))))
+
+(defn sortable-rem-ids! [comp db ids]
+  (when-let [state (get-state comp)]
+    (let [state (transient state)]
+      (doseq [id ids]
+        (dissoc! state id))
+      (->> (persistent! state)
+           normalize-sort-indexes
+           (replace-state! comp)))))
+
+(defn listen-passwords-ids! [comp app ids]
+  (let [callback (fn [_ _ o n]
+                   (let [rem-ids (clojure.set/difference o n)
+                         add-ids (clojure.set/difference n o)
+                         db @app]
+                     (sortable-add-ids! comp db add-ids)
+                     (sortable-rem-ids! comp db rem-ids)))]
+    (add-watch ids :ids-updates callback)))
+
+
 (defn process-updated-index2 [diff]
   (when (and (first diff) (second diff))
     (let [old (->> (first diff)
@@ -583,18 +628,25 @@
       (clojure.set/intersection (-> old keys set)
                                 (-> new keys set)))))
 
-#_(defn fill-gaps [in-map]
-  (->> (sort-by (comp :sort-index second) in-map)
-    (map (fn [[key {:keys [sort-index]}] i] ) in-map (range (count in-map)))
-    (into {})))
 
-#_(def sortable-mixin
+(def sortable-mixin
   (fn [ids]
     (mixin
       {:getInitialState (fn [_ {:keys [app]}]
-                          (let [db @app]
-                            (map (fn [id] {id {:sort-index (-> (ds/entity db id)
-                                                               :state/sort-index)}}))))})))
+                          (let [db @app
+                                ids @ids
+                                ids-indexes-map (map (fn [id] {id {:sort-index (-> (ds/entity db id)
+                                                                                   :state/sort-index)}})
+                                                     ids)
+                                normalized-ids-indexes-map (normalize-sort-indexes ids-indexes-map)
+                                update-ids-indexes (-> (clojure.data/diff ids-indexes-map normalized-ids-indexes-map)
+                                                       second)]
+                            (data/set-sort-indexes! app update-ids-indexes)))
+       :componentDidMount (fn [_ _ {:keys [app]}]
+                            (listen-passwords-ids! *component* app ids)
+                            #_(process-sortables app))
+       :componentWillUnmount (fn [_ state {:keys [app]}]
+                               (remove-watch ids :ids-updates))})))
 
 (def passwords-list
   (component-raw "passwords-list"
