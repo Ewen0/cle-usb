@@ -546,6 +546,9 @@
 
 #_({1 {:index 0}, 2 {:index 1}} {1 {:index 1}, 2 {:index 0}} {1 {:pos 123}, 2 {:pos 122}})
 
+(defn process-sortables2 [ids app]
+  )
+
 
 
 
@@ -573,13 +576,13 @@
 
 
 
+(def not-nil? (comp not nil?))
 
 (defn compare* [x y]
-  (let [not-nil? (comp not nil?)]
-    (cond
-      (and (nil? x) (not-nil? y)) 1
-      (and (nil? y) (not-nil? x)) -1
-      :else (compare x y))))
+  (cond
+    (and (nil? x) (not-nil? y)) 1
+    (and (nil? y) (not-nil? x)) -1
+    :else (compare x y)))
 
 
 (defn normalize-sort-indexes [in-map]
@@ -629,22 +632,70 @@
                                 (-> new keys set)))))
 
 
+;Cannot use the javascript .indexOf method since it does an identity comparison
+;instead of a value comparison
+(defn index-of [coll item]
+  (loop [[first-item & r] (seq coll)
+         i 0]
+    (if (nil? first-item)
+      -1
+      (if (= first-item item)
+        i
+        (recur r (+ 1 i))))))
+
+
+(defn permute [m permutations]
+  (let [m (vec m)]
+    (loop [sorted-m m
+           [p prest] [(first permutations) (rest permutations)]]
+      (println sorted-m " \n")
+      (if (nil? p)
+        sorted-m
+        (recur (assoc sorted-m (first p) (m (second p))
+                               (second p) (m (first p)))
+               prest)))))
+
+(comment
+  (let [mm
+        {0 {:pos nil}
+         1 {:pos 3}
+         2 {:pos nil}
+         3 {:pos 2}
+         4 {:pos 4}
+         5 {:pos 5}
+         6 {:pos 6}
+         7 {:pos 7}
+         8 {:pos 8}}
+        mm-pos (map (fn [item pos] [item pos]) mm (range (count mm)))
+        filtered (filter (comp not-nil? :pos val first) mm-pos)
+        sorted-pos (sort-by (comp :pos val first) filtered)
+        permutations (->> (map (fn [[_ index1] [_ index2]]
+                                 (when (not (= index1 index2))
+                                   #{index1 index2}))
+                               filtered sorted-pos)
+                          (filter not-nil?)
+                          set)
+        sorted-mm (permute mm permutations)]
+    (index-of mm [1 {:pos 3}])
+    mm-pos
+    filtered
+    sorted-pos
+    permutations
+    sorted-mm)
+
+  )
+
 (def sortable-mixin
   (fn [ids]
     (mixin
       {:getInitialState (fn [_ {:keys [app]}]
-                          (let [db @app
-                                ids @ids
-                                ids-indexes-map (map (fn [id] {id {:sort-index (-> (ds/entity db id)
-                                                                                   :state/sort-index)}})
-                                                     ids)
-                                normalized-ids-indexes-map (normalize-sort-indexes ids-indexes-map)
-                                update-ids-indexes (-> (clojure.data/diff ids-indexes-map normalized-ids-indexes-map)
-                                                       second)]
-                            (data/set-sort-indexes! app update-ids-indexes)))
+                          (->> (map (fn [id] {id {:sort-index (-> (ds/entity @app id)
+                                                                  :state/sort-index)}})
+                                    @ids)
+                               (sort-by (comp :sort-index second))))
        :componentDidMount (fn [_ _ {:keys [app]}]
                             (listen-passwords-ids! *component* app ids)
-                            #_(process-sortables app))
+                            (process-sortables app))
        :componentWillUnmount (fn [_ state {:keys [app]}]
                                (remove-watch ids :ids-updates))})))
 
