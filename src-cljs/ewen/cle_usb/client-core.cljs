@@ -94,8 +94,7 @@
                                              first
                                              :v)]
                                (render-view view)))]
-  (ds/listen! app :view/current
-              change-view-callback
+  (ds/listen! app change-view-callback
               (data/get-index-keys data/get-current-view app)))
 
 (comment

@@ -18,6 +18,14 @@
                    [cljs.core.match.macros :refer [match]]
                    [ewen.async-plus.macros :as async+m]))
 
+
+(extend-type cljs.core.async.impl.channels/ManyToManyChannel
+  ds/IPublish
+  (publish [this report]
+    (async/put! this report)))
+
+
+
 (def ^:dynamic *component*)
 
 (defn render
@@ -43,6 +51,12 @@
 
 (defn get-statics [comp]
   (-> comp .-props (aget (keyword->string ::statics))))
+
+
+(def component-methods-keys #{:getInitialState :getDefaultProps :componentWillMount
+                              :componentDidMount :componentWillUpdate :componentDidUpdate
+                              :componentWillUnmount :componentWillReceiveProps
+                              :shouldComponentUpdate :render})
 
 
 (defn bind-lifecycle-method-args [[method-key method]]
@@ -111,6 +125,8 @@
                        (get-props *component*)
                        (get-state *component*)
                        (get-statics *component*))))}
+        (empty? (clojure.set/intersection #{method-key component-methods-keys}))
+        {method-key (with-this method)}
         :else {method-key method}))
 
 (defn bind-methods-args-comp [methods-args]
@@ -266,21 +282,9 @@
 
 
 
-(defn listen-password-label! [comp app pwd-id]
-  (let [index-keys #{[@app :eavt pwd-id :password/label]}
-        callback (fn [{:keys [tx-data]}]
-                   (let [state (atom (get-state comp))]
-                     (when @state
-                       (doseq [datom tx-data]
-                         (match [datom]
-                                [{:e     pwd-id
-                                  :a     :password/label
-                                  :v     label
-                                  :added true}] (reset! state label)
-                                :else nil))
-                       (replace-state! comp @state))))]
-    (ds/listen! app (:keyword (str "password-button-" pwd-id))
-                callback
+(defn listen-password-label! [comp app pwd-id callback]
+  (let [index-keys #{[@app :eavt pwd-id :password/label]}]
+    (ds/listen! app callback
                 index-keys)))
 
 
@@ -292,30 +296,29 @@
                   :getInitialState (fn [{:keys [id]} {:keys [app]}]
                                      (:password/label (ds/entity @app id)))
                   :componentWillMount (fn [{:keys [id]} _ {:keys [app]}]
-                                        (listen-password-label! *component* app id))
+                                        (listen-password-label! *component* app id (aget *component* "password-button-callback")))
                   :componentWillUnmount(fn [{:keys [id]} _ {:keys [app]}]
-                                         (ds/unlisten! app (:keyword (str "password-button-" id))))}))
+                                         (ds/unlisten! app (aget *component* "password-button-callback")))
+                  :password-button-callback (fn [{:keys [tx-data]}]
+                       (let [state (atom (get-state *component*))]
+                         (when @state
+                           (doseq [datom tx-data]
+                             (match [datom]
+                                    [{:e     pwd-id
+                                      :a     :password/label
+                                      :v     label
+                                      :added true}] (reset! state label)
+                                    :else nil))
+                           (replace-state! *component* @state))))}))
 
 
-(defn listen-dragging-helper! [app pwd-id callback key]
+(defn listen-dragging-helper! [app pwd-id callback]
   (let [index-keys (data/get-index-keys data/get-dragging app pwd-id)]
-    (ds/listen! app key callback index-keys)))
+    (ds/listen! app callback index-keys)))
 
-(defn listen-dragging! [app id start-or-stop callback]
-  (let [start-or-stop-bool (= :start start-or-stop)]
-    (listen-dragging-helper! app id
-                               (fn [{:keys [tx-data]}]
-                                 (doseq [datom tx-data]
-                                   (match [datom]
-                                          [{:e     id
-                                            :a     :state/dragging
-                                            :v     start-or-stop-bool
-                                            :added true}] (callback)
-                                          :else nil)))
-                               (keyword (str "dragging-" id "-" (name start-or-stop))))))
+(defn listen-dragging! [app id callback]
+  (listen-dragging-helper! app id callback))
 
-(defn unlisten-dragging! [app pwd-id start-or-stop]
-  (ds/unlisten! app (keyword (str "dragging-" pwd-id "-" (name start-or-stop)))))
 
 (def dd-handle-mixin
   (mixin
@@ -323,22 +326,35 @@
                           (listen! (.getDOMNode *component*)
                                    (:down event-types)
                                    #(dd-down-callback app id %))
-                          (listen-dragging! app id :start
-                                                     (fn []
-                                                       (listen! (:move event-types)
-                                                                #(dd-move-callback app id %))
-                                                       (listen! (:up event-types)
-                                                                #(dd-up-callback app id))))
-                          (listen-dragging! app id :stop
-                                                     (fn []
-                                                       (unlisten! domina/root-element (:move event-types))
-                                                       (unlisten! domina/root-element (:up event-types)))))
+                          (listen-dragging! app id (aget *component* "handle-start-dragging-callback"))
+                          (listen-dragging! app id
+                                            (aget *component* "handle-stop-dragging-callback")))
 
      :componentWillUnmount (fn [{:keys [id]} _ {:keys [app]}]
                              (unlisten! (.getDOMNode *component*)
                                         (:down event-types))
-                             (unlisten-dragging! app id :start)
-                             (unlisten-dragging! app id :stop))}))
+                             (ds/unlisten! app (aget *component* "handle-start-dragging-callback"))
+                             (ds/unlisten! app (aget *component* "handle-stop-dragging-callback")))
+     :handle-start-dragging-callback (fn [{:keys [tx-data]}]
+                                       (doseq [datom tx-data]
+                                         (match [datom]
+                                                [{:e     id
+                                                  :a     :state/dragging
+                                                  :v     true
+                                                  :added true}] (do (listen! (:move event-types)
+                                                                             #(dd-move-callback app id %))
+                                                                    (listen! (:up event-types)
+                                                                             #(dd-up-callback app id)))
+                                                :else nil)))
+     :handle-stop-dragging-callback (fn [{:keys [tx-data]}]
+                                      (doseq [datom tx-data]
+                                        (match [datom]
+                                               [{:e     id
+                                                 :a     :state/dragging
+                                                 :v     false
+                                                 :added true}] (do (unlisten! domina/root-element (:move event-types))
+                                                                   (unlisten! domina/root-element (:up event-types)))
+                                               :else nil)))}))
 
 (def password-handle
   (component-raw "password-handle"
@@ -353,22 +369,9 @@
 
 
 
-(defn listen-password-dragging! [comp app pwd-id key]
-  (let [index-keys (data/get-index-keys data/get-dragging app pwd-id)
-        callback (fn [{:keys [tx-data]}]
-                   (when-let [state (get-state comp)]
-                     (let [state (transient state)]
-                       (doseq [datom tx-data]
-                         (match [datom]
-                                [{:e     pwd-id
-                                  :a     :state/dragging
-                                  :v     dragging
-                                  :added true}] (assoc! state :dragging dragging)
-                                :else nil))
-                       (when (.isMounted comp)
-                         (replace-state! comp (persistent! state))))))]
-    (ds/listen! app key
-                callback
+(defn listen-password-dragging! [comp app pwd-id callback]
+  (let [index-keys (data/get-index-keys data/get-dragging app pwd-id)]
+    (ds/listen! app callback
                 index-keys)))
 
 (defn listen-password-pos! [comp app pwd-id]
@@ -410,10 +413,10 @@
     {:getInitialState (fn [{:keys [id]} {:keys [app]}]
                         {:dragging (data/get-dragging @app id)})
      :componentWillUnmount (fn [{:keys [id]} _ {:keys [app]}]
-                             (ds/unlisten! app (keyword (str "dd-target-dragging-" id)))
+                             (ds/unlisten! app (aget *component* "dd-target-dragging-callback"))
                              (ds/unlisten! app (keyword (str "password-pos-" id))))
      :componentDidMount (fn [{:keys [id]} _ {:keys [app]}]
-                          (listen-password-dragging! *component* app id (keyword (str "dd-target-dragging-" id)))
+                          (listen-password-dragging! *component* app id (aget *component* "dd-target-dragging-callback"))
                           (listen-password-pos! *component* app id)
                           (let [node (.getDOMNode *component*)
                                 init-pos (gstyle/getPosition node)]
@@ -425,7 +428,19 @@
                              (let [node (.getDOMNode *component*)
                                    init-pos (gstyle/getPosition node)]
                                (data/set-init-pos! app id (-> (g-pos->pos init-pos) :y))
-                               (data/set-pwd-pos! app id (-> (g-pos->pos init-pos) :y)))))}))
+                               (data/set-pwd-pos! app id (-> (g-pos->pos init-pos) :y)))))
+     :dd-target-dragging-callback (fn [{:keys [tx-data]}]
+          (when-let [state (get-state *component*)]
+            (let [state (transient state)]
+              (doseq [datom tx-data]
+                (match [datom]
+                       [{:e     pwd-id
+                         :a     :state/dragging
+                         :v     dragging
+                         :added true}] (assoc! state :dragging dragging)
+                       :else nil))
+              (when (.isMounted *component*)
+                (replace-state! *component* (persistent! state))))))}))
 
 (def password
   (component-raw "password"
@@ -461,9 +476,21 @@
                   :getInitialState (fn [{:keys [id]} {:keys [app]}]
                                      {:dragging (data/get-dragging @app id)})
                   :componentDidMount (fn [{:keys [id]} _ {:keys [app]}]
-                                        (listen-password-dragging! *component* app id (keyword (str "placeholder-dragging-" id))))
+                                        (listen-password-dragging! *component* app id (aget *component* "placeholder-dragging-callback")))
                   :componentWillUnmount (fn [{:keys [id]} _ {:keys [app]}]
-                                          (ds/unlisten! app (keyword (str "placeholder-dragging-" id))))}))
+                                          (ds/unlisten! app (aget *component* "placeholder-dragging-callback")))
+                  :placeholder-dragging-callback (fn [{:keys [tx-data]}]
+                                                   (when-let [state (get-state *component*)]
+                                                     (let [state (transient state)]
+                                                       (doseq [datom tx-data]
+                                                         (match [datom]
+                                                                [{:e     pwd-id
+                                                                  :a     :state/dragging
+                                                                  :v     dragging
+                                                                  :added true}] (assoc! state :dragging dragging)
+                                                                :else nil))
+                                                       (when (.isMounted *component*)
+                                                         (replace-state! *component* (persistent! state))))))}))
 
 
 
@@ -592,40 +619,57 @@
        (map (fn [i [key {:keys [sort-index]}]] [key {:sort-index i}]) (range (count in-map)))
        (into {})))
 
-(defn listen-pos! [app sort-state id]
+
+(defn pos-callback [sort-state {:keys [tx-data]}]
+  (let [updates (mapcat (fn [datom]
+                          (match [datom]
+                                 [{:e     id
+                                   :a     :password/pos
+                                   :v     new-pos
+                                   :added true}]
+                                 [[id :pos] new-pos]
+                                 :else nil))
+                        tx-data)]
+    (apply (partial swap! sort-state assoc-in) updates)))
+
+
+(defn apply-index-updates [sort-state updates]
+  (loop [[[map-keys new-sort-index] & r] updates
+         sort-state sort-state]
+    (if (empty? r)
+      (assoc-in sort-state map-keys new-sort-index)
+      (recur r (assoc-in sort-state map-keys new-sort-index)))))
+
+(defn index-callback [sort-state {:keys [tx-data]}]
+  (let [updates (map (fn [datom]
+                          (match [datom]
+                                 [{:e     id
+                                   :a     :state/sort-index
+                                   :v     new-sort-index
+                                   :added true}]
+                                 [[id :sort-index] new-sort-index]
+                                 :else nil))
+                        tx-data)
+        updates (filter not-nil? updates)]
+    (.log js/console (str "index-callback " updates))
+    (swap! sort-state apply-index-updates updates)))
+
+(defn listen-pos! [app pos-callback id]
   (let [index-keys (->> (ds/pattern->index-keys [id :password/pos nil nil])
                         (into [app])
-                        (conj #{}))
-        callback (fn [{:keys [tx-data]}]
-                   (doseq [datom tx-data]
-                     (match [datom]
-                            [{:e     id
-                              :a     :password/pos
-                              :v     new-pos
-                              :added true}]
-                            (swap! sort-state assoc-in [id :pos] new-pos)
-                            :else nil)))]
-    (ds/listen! app (keyword (str "sortable-pos-" id)) callback index-keys)))
+                        (conj #{}))]
+    (ds/listen! app (keyword (str "sortable-pos-" id)) pos-callback index-keys)))
 
-(defn listen-index! [app sort-state id]
+(defn listen-index! [app index-callback id]
   (let [index-keys (->> (ds/pattern->index-keys [id :state/sort-index nil nil])
                         (into [app])
-                        (conj #{}))
-        callback (fn [{:keys [tx-data]}]
-                  (doseq [datom tx-data]
-                     (match [datom]
-                            [{:e     id
-                              :a     :state/sort-index
-                              :v     new-sort-index
-                              :added true}]
-                            (swap! sort-state assoc-in [id :sort-index] new-sort-index)
-                            :else nil)))]
-    (ds/listen! app (keyword (str "sortable-index-" id)) callback index-keys)))
+                        (conj #{}))]
+    (ds/listen! app (keyword (str "sortable-index-" id)) index-callback index-keys)))
 
-(defn sortable-add-ids! [sort-state app ids]
+(defn sortable-add-ids! [sort-state pos-callback index-callback app ids]
   (doseq [id ids]
-    (listen-index! app sort-state id)
-    (listen-pos! app sort-state id))
+    (listen-index! app index-callback id)
+    (listen-pos! app pos-callback id))
   (doseq [id ids]
     (let [index (-> (ds/entity @app id)
                     :state/sort-index)]
@@ -642,41 +686,49 @@
 (defn listen-passwords-ids! [react-comp app ids]
   (let [db @app
         sort-state (atom {})
+        pos-callback (partial pos-callback sort-state)
+        index-callback (partial index-callback sort-state)
         sort-state-no-nil-pos (atom {})
         ids-callback (fn [_ _ o n]
                        (let [rem-ids (clojure.set/difference o n)
                              add-ids (clojure.set/difference n o)]
-                         (sortable-add-ids! sort-state app add-ids)
+                         (sortable-add-ids! sort-state pos-callback index-callback app add-ids)
                          (sortable-rem-ids! sort-state app rem-ids)))
         sort-state-callback (fn [_ _ o n]
+                              (.log js/console (str "sort-state " n))
                               (let [diff (clojure.data/diff o n)
                                     rem-items (first (clojure.data/diff (keys (first diff))
-                                                                        (keys (second diff))))
+                                                                         (keys (second diff))))
                                     add-items (->> (second diff)
                                                    (filter (comp :pos val)))]
                                 (doseq [id rem-items]
                                   (swap! sort-state-no-nil-pos dissoc id))
-                                (doseq [[id val-map] add-items]
-                                  (swap! sort-state-no-nil-pos assoc id val-map))))]
+                                (doseq [[id _] add-items]
+                                  (swap! sort-state-no-nil-pos assoc id (get n id)))))]
     (add-watch sort-state-no-nil-pos :sort-state-no-nil-pos-updates
                (fn [_ _ _ n]
-                 (.log js/console (str (->> (map (fn [[id _] [id-sorted _]]
-                                                   (if (= id id-sorted)
-                                                     nil
-                                                     [id id-sorted]))
-                                                 n
-                                                 (sort-by (comp :pos val) n))
-                                            (filter not-nil?))))
-
-                 ))
+                 (let [sort-updates (->> (map (fn [[id _] [id-sorted _]]
+                                                (if (= id id-sorted)
+                                                  nil
+                                                  [id id-sorted]))
+                                              n
+                                              (sort-by (comp :pos val) n))
+                                         (filter not-nil?)
+                                         (map (fn [[id new-sort-id]]
+                                                {id {:sort-index (-> (get n new-sort-id)
+                                                                     :sort-index)}}))
+                                         (apply merge))]
+                   (.log js/console (str "sort-updates " sort-updates))
+                   (when (not-empty sort-updates)
+                     (data/set-sort-indexes! app sort-updates)))))
     (add-watch sort-state :sort-state->sort-state-no-nil-pos sort-state-callback)
     (add-watch sort-state :sort-state-updates (fn [_ _ _ n]
                                                 (->> (sort-by (comp :sort-index val) compare* n)
                                                      (replace-state! react-comp))))
     (add-watch ids :ids-updates ids-callback)
     (doseq [id @ids]
-      (listen-pos! app sort-state id)
-      (listen-index! app sort-state id)
+      (listen-pos! app pos-callback id)
+      (listen-index! app index-callback id)
       (let [pos (-> (ds/entity db id) :password/pos)
             index (-> (ds/entity db id) :state/sort-index)]
         (swap! sort-state assoc id {:sort-index index
@@ -766,6 +818,8 @@
 
 
 
+
+
 (def passwords-list
   (component-raw "passwords-list"
                  {:render               (fn [_ state {:keys [app]}]
@@ -773,31 +827,31 @@
                                                  (map (fn [[id _]]
                                                         (placeholder {:id id} {:app app} {:key id :ref id}))
                                                       state)]))
-                  :mixins               #js [sortable-mixin]
+                  #_:mixins               #_#js [sortable-mixin]
                   :ids                  (atom #{})
                   :componentWillMount   (fn [_ _ {:keys [app]}]
                                           (let [react-comp *component*
                                                 index-keys (data/get-index-keys data/get-list-passwords app)
-                                                callback (fn [{:keys [tx-data]}]
-                                                           (doseq [datom tx-data]
-                                                             (match [datom]
-                                                                    [{:e     pwd-id
-                                                                      :a     :password/label
-                                                                      :v     _
-                                                                      :added true}]
-                                                                    (swap! (.-ids react-comp) conj pwd-id)
-                                                                    [{:e     pwd-id
-                                                                      :a     :password/label
-                                                                      :v     _
-                                                                      :added false}]
-                                                                    (swap! (.-ids react-comp) disj pwd-id)
-                                                                    :else nil)))
                                                 ids (data/get-list-passwords @app)]
-                                            (ds/listen! app :passwords-ids callback index-keys)
+                                            (ds/listen! app (aget *component* "ids-callback") index-keys)
                                             (doseq [[id] ids]
                                               (swap! (.-ids *component*) conj id))))
                   :componentWillUnmount (fn [_ _ {:keys [app]}]
-                                          (ds/unlisten! app :passwords-ids))}))
+                                          (ds/unlisten! app (aget *component* "ids-callback")))
+                  :ids-callback (fn [{:keys [tx-data]}]
+                                  (doseq [datom tx-data]
+                                    (match [datom]
+                                           [{:e     pwd-id
+                                             :a     :password/label
+                                             :v     _
+                                             :added true}]
+                                           (swap! (.-ids *component*) conj pwd-id)
+                                           [{:e     pwd-id
+                                             :a     :password/label
+                                             :v     _
+                                             :added false}]
+                                           (swap! (.-ids *component*) disj pwd-id)
+                                           :else nil)))}))
 
 
 
@@ -974,6 +1028,8 @@
                                                   :height height
                                                   :label label}))
        first)
+
+  (load-namespace 'ewen.cle-usb.client-core)
 
 
   )
