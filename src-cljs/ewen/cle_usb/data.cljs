@@ -244,6 +244,30 @@
   (ds/transact! app [{:db/id        pwd-id
                       :password/label label}]))
 
+(defn get-pwd-list-id [data]
+  (-> (ds/q '[:find ?id
+              :where [?id :passwords-list/chan _]]
+            data)
+      only))
+
+(defn get-pwd-list-chan [data]
+  (-> (ds/q '[:find ?chan
+              :where [?id :passwords-list/chan ?chan]]
+            data)
+      only))
+
+(defn set-pwd-list-chan! [app chan]
+  (ds/transact! app [{:db/id -1
+                      :passwords-list/chan chan}]))
+
+(defn set-attr! [app id attr val]
+  (ds/transact! app [{:db/id id
+                      attr val}]))
+
+(defn retract-pwd-list-chan! [app]
+  (let [id (get-pwd-list-id @app)]
+    (ds/transact! app [[:db.fn/retractAttribute id :passwords-list/chan]])))
+
 
 
 

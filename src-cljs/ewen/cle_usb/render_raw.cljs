@@ -19,6 +19,7 @@
                    [ewen.async-plus.macros :as async+m]))
 
 
+
 (extend-type cljs.core.async.impl.channels/ManyToManyChannel
   ds/IPublish
   (publish [this report]
@@ -52,11 +53,6 @@
 (defn get-statics [comp]
   (-> comp .-props (aget (keyword->string ::statics))))
 
-
-(def component-methods-keys #{:getInitialState :getDefaultProps :componentWillMount
-                              :componentDidMount :componentWillUpdate :componentDidUpdate
-                              :componentWillUnmount :componentWillReceiveProps
-                              :shouldComponentUpdate :render})
 
 
 (defn bind-lifecycle-method-args [[method-key method]]
@@ -125,8 +121,6 @@
                        (get-props *component*)
                        (get-state *component*)
                        (get-statics *component*))))}
-        (empty? (clojure.set/intersection #{method-key component-methods-keys}))
-        {method-key (with-this method)}
         :else {method-key method}))
 
 (defn bind-methods-args-comp [methods-args]
@@ -288,6 +282,7 @@
                 index-keys)))
 
 
+
 (def password-button
   (component-raw "password-button"
                  {:render (fn [_ label _]
@@ -296,20 +291,26 @@
                   :getInitialState (fn [{:keys [id]} {:keys [app]}]
                                      (:password/label (ds/entity @app id)))
                   :componentWillMount (fn [{:keys [id]} _ {:keys [app]}]
-                                        (listen-password-label! *component* app id (aget *component* "password-button-callback")))
+                                        (let [comp *component*
+                                              chan (async/chan)]
+                                          (go-loop []
+                                                   (when-let [{:keys [tx-data]} (async/<! chan)]
+                                                     (let [state (atom (get-state comp))]
+                                                       (when @state
+                                                         (doseq [datom tx-data]
+                                                           (match [datom]
+                                                                  [{:e     pwd-id
+                                                                    :a     :password/label
+                                                                    :v     label
+                                                                    :added true}] (reset! state label)
+                                                                  :else nil))
+                                                         (replace-state! comp @state)))
+                                                     (recur))
+                                                   (async/close! chan))
+                                          (data/set-attr! app id :password-button-callback chan)
+                                          (listen-password-label! comp app id chan)))
                   :componentWillUnmount(fn [{:keys [id]} _ {:keys [app]}]
-                                         (ds/unlisten! app (aget *component* "password-button-callback")))
-                  :password-button-callback (fn [{:keys [tx-data]}]
-                       (let [state (atom (get-state *component*))]
-                         (when @state
-                           (doseq [datom tx-data]
-                             (match [datom]
-                                    [{:e     pwd-id
-                                      :a     :password/label
-                                      :v     label
-                                      :added true}] (reset! state label)
-                                    :else nil))
-                           (replace-state! *component* @state))))}))
+                                         (ds/unlisten! app (-> (ds/entity @app id) :password-button-callback)))}))
 
 
 (defn listen-dragging-helper! [app pwd-id callback]
@@ -320,22 +321,16 @@
   (listen-dragging-helper! app id callback))
 
 
+
 (def dd-handle-mixin
   (mixin
     {:componentDidMount (fn [{:keys [id]} _ {:keys [app]}]
                           (listen! (.getDOMNode *component*)
                                    (:down event-types)
                                    #(dd-down-callback app id %))
-                          (listen-dragging! app id (aget *component* "handle-start-dragging-callback"))
-                          (listen-dragging! app id
-                                            (aget *component* "handle-stop-dragging-callback")))
-
-     :componentWillUnmount (fn [{:keys [id]} _ {:keys [app]}]
-                             (unlisten! (.getDOMNode *component*)
-                                        (:down event-types))
-                             (ds/unlisten! app (aget *component* "handle-start-dragging-callback"))
-                             (ds/unlisten! app (aget *component* "handle-stop-dragging-callback")))
-     :handle-start-dragging-callback (fn [{:keys [tx-data]}]
+                          (let [chan (async/chan)]
+                            (go-loop []
+                                     (when-let [{:keys [tx-data]} (async/<! chan)]
                                        (doseq [datom tx-data]
                                          (match [datom]
                                                 [{:e     id
@@ -345,16 +340,31 @@
                                                                              #(dd-move-callback app id %))
                                                                     (listen! (:up event-types)
                                                                              #(dd-up-callback app id)))
-                                                :else nil)))
-     :handle-stop-dragging-callback (fn [{:keys [tx-data]}]
-                                      (doseq [datom tx-data]
-                                        (match [datom]
-                                               [{:e     id
-                                                 :a     :state/dragging
-                                                 :v     false
-                                                 :added true}] (do (unlisten! domina/root-element (:move event-types))
-                                                                   (unlisten! domina/root-element (:up event-types)))
-                                               :else nil)))}))
+                                                :else nil))
+                                       (recur))
+                                     (async/close! chan))
+                            (data/set-attr! app id :handle-start-dragging-chan chan)
+                            (listen-dragging! app id chan))
+                          (let [chan (async/chan)]
+                            (go-loop []
+                                     (when-let [{:keys [tx-data]} (async/<! chan)]
+                                       (doseq [datom tx-data]
+                                         (match [datom]
+                                                [{:e     id
+                                                  :a     :state/dragging
+                                                  :v     false
+                                                  :added true}] (do (unlisten! domina/root-element (:move event-types))
+                                                                    (unlisten! domina/root-element (:up event-types)))
+                                                :else nil))
+                                       (recur))
+                                     (async/close! chan))
+                            (data/set-attr! app id :handle-stop-dragging-chan chan)
+                            (listen-dragging! app id chan)))
+     :componentWillUnmount (fn [{:keys [id]} _ {:keys [app]}]
+                             (unlisten! (.getDOMNode *component*)
+                                        (:down event-types))
+                             (ds/unlisten! app (-> (ds/entity @app id) :handle-start-dragging-chan))
+                             (ds/unlisten! app (-> (ds/entity @app id) :handle-stop-dragging-callback)))}))
 
 (def password-handle
   (component-raw "password-handle"
@@ -374,21 +384,9 @@
     (ds/listen! app callback
                 index-keys)))
 
-(defn listen-password-pos! [comp app pwd-id]
-  (let [index-keys (data/get-index-keys data/get-password-pos app pwd-id)
-        callback (fn [{:keys [tx-data]}]
-                   (when-let [state (get-state comp)]
-                     (let [state (transient state)]
-                       (doseq [datom tx-data]
-                         (match [datom]
-                                [{:e     pwd-id
-                                  :a     :password/pos
-                                  :v     pos
-                                  :added true}] (assoc! state :pos pos)
-                                :else nil))
-                       (when (.isMounted comp)
-                         (replace-state! comp (persistent! state))))))]
-    (ds/listen! app (keyword (str "password-pos-" pwd-id))
+(defn listen-password-pos! [comp app pwd-id callback]
+  (let [index-keys (data/get-index-keys data/get-password-pos app pwd-id)]
+    (ds/listen! app
                 callback
                 index-keys)))
 
@@ -400,6 +398,7 @@
     (let [node (when (.isMounted *component*) (.getDOMNode *component*))
           width (if node (.-width (gstyle/getSize node)) nil)
           height (if node (.-height (gstyle/getSize node)) nil)
+          #__ #_(.log js/console (str id " " dragging " " pos))
           style-pos (if (and dragging pos)
                       {:position "absolute" :top pos}
                       {:position "static" :z-index 0})
@@ -411,13 +410,52 @@
 (def dd-target-mixin
   (mixin
     {:getInitialState (fn [{:keys [id]} {:keys [app]}]
-                        {:dragging (data/get-dragging @app id)})
+                        {:dragging (data/get-dragging @app id)
+                         :pos      (-> (ds/entity @app id) :password/pos)})
      :componentWillUnmount (fn [{:keys [id]} _ {:keys [app]}]
-                             (ds/unlisten! app (aget *component* "dd-target-dragging-callback"))
-                             (ds/unlisten! app (keyword (str "password-pos-" id))))
+                             (ds/unlisten! app (-> (ds/entity @app id) :dd-target-dragging-chan))
+                             (ds/unlisten! app (-> (ds/entity @app id) :dd-target-pos-chan)))
      :componentDidMount (fn [{:keys [id]} _ {:keys [app]}]
-                          (listen-password-dragging! *component* app id (aget *component* "dd-target-dragging-callback"))
-                          (listen-password-pos! *component* app id)
+                          (let [comp *component*
+                                chan (async/chan)]
+                            (go-loop []
+                                     (when-let [{:keys [tx-data]} (async/<! chan)]
+                                       (when-let [state (get-state comp)]
+                                         (let [state (transient state)]
+                                           (doseq [datom tx-data]
+                                             (match [datom]
+                                                    [{:e     id
+                                                      :a     :state/dragging
+                                                      :v     dragging
+                                                      :added true}] (assoc! state :dragging dragging)
+                                                    :else nil))
+                                           (when (.isMounted comp)
+                                             (replace-state! comp (persistent! state)))))
+                                       (recur))
+                                     (async/close! chan))
+                            (data/set-attr! app id :dd-target-dragging-chan chan)
+                            (listen-password-dragging! *component* app id chan))
+
+                          (let [comp *component*
+                                chan (async/chan)]
+                            (go-loop []
+                                     (when-let [{:keys [tx-data]} (async/<! chan)]
+                                       (when-let [state (get-state comp)]
+                                         (let [state (transient state)]
+                                           (doseq [datom tx-data]
+                                             (match [datom]
+                                                    [{:e     id
+                                                      :a     :password/pos
+                                                      :v     pos
+                                                      :added true}] (assoc! state :pos pos)
+                                                    :else nil))
+                                           (when (.isMounted comp)
+                                             (replace-state! comp (persistent! state)))))
+                                       (recur))
+                                     (async/close! chan))
+                            (data/set-attr! app id :dd-target-pos-chan chan)
+                            (listen-password-pos! *component* app id chan))
+
                           (let [node (.getDOMNode *component*)
                                 init-pos (gstyle/getPosition node)]
                             (data/set-init-pos! app id (-> (g-pos->pos init-pos) :y))
@@ -428,19 +466,7 @@
                              (let [node (.getDOMNode *component*)
                                    init-pos (gstyle/getPosition node)]
                                (data/set-init-pos! app id (-> (g-pos->pos init-pos) :y))
-                               (data/set-pwd-pos! app id (-> (g-pos->pos init-pos) :y)))))
-     :dd-target-dragging-callback (fn [{:keys [tx-data]}]
-          (when-let [state (get-state *component*)]
-            (let [state (transient state)]
-              (doseq [datom tx-data]
-                (match [datom]
-                       [{:e     pwd-id
-                         :a     :state/dragging
-                         :v     dragging
-                         :added true}] (assoc! state :dragging dragging)
-                       :else nil))
-              (when (.isMounted *component*)
-                (replace-state! *component* (persistent! state))))))}))
+                               (data/set-pwd-pos! app id (-> (g-pos->pos init-pos) :y)))))}))
 
 (def password
   (component-raw "password"
@@ -463,9 +489,8 @@
                  {:render (fn [{:keys [id]}
                                {:keys [dragging width height] :as state}
                                {:keys [app]}]
-                            (let [node (when (.isMounted *component*) (.getDOMNode *component*))
-                                  width (if node (.-width (gstyle/getSize node)) nil)
-                                  height (if node (.-height (gstyle/getSize node)) nil)
+                            (let [width (aget *component* "width")
+                                  height (aget *component* "height")
                                   dim (if width {:width width} {})
                                   dim (merge dim (if height {:height height} {}))]
                               (html [:div (password {:id id} {:app app})
@@ -476,21 +501,29 @@
                   :getInitialState (fn [{:keys [id]} {:keys [app]}]
                                      {:dragging (data/get-dragging @app id)})
                   :componentDidMount (fn [{:keys [id]} _ {:keys [app]}]
-                                        (listen-password-dragging! *component* app id (aget *component* "placeholder-dragging-callback")))
+                                       (let [comp *component*
+                                             chan (async/chan)]
+                                         (data/set-attr! app id :state/placeholder-dragging chan)
+                                         (go-loop []
+                                                  (when-let [{:keys [tx-data]} (async/<! chan)]
+                                                    (when-let [state (get-state comp)]
+                                                      (let [state (transient state)]
+                                                        (doseq [datom tx-data]
+                                                          (match [datom]
+                                                                 [{:e     pwd-id
+                                                                   :a     :state/dragging
+                                                                   :v     dragging
+                                                                   :added true}] (assoc! state :dragging dragging)
+                                                                 :else nil))
+                                                        (when (.isMounted comp)
+                                                          (replace-state! comp (persistent! state)))))
+                                                    (recur))
+                                                  (async/close! chan))
+                                         (listen-password-dragging! comp app id chan))
+                                       (aset *component* "with" (.-width (gstyle/getSize (.getDOMNode *component*))))
+                                       (aset *component* "height" (.-height (gstyle/getSize (.getDOMNode *component*)))))
                   :componentWillUnmount (fn [{:keys [id]} _ {:keys [app]}]
-                                          (ds/unlisten! app (aget *component* "placeholder-dragging-callback")))
-                  :placeholder-dragging-callback (fn [{:keys [tx-data]}]
-                                                   (when-let [state (get-state *component*)]
-                                                     (let [state (transient state)]
-                                                       (doseq [datom tx-data]
-                                                         (match [datom]
-                                                                [{:e     pwd-id
-                                                                  :a     :state/dragging
-                                                                  :v     dragging
-                                                                  :added true}] (assoc! state :dragging dragging)
-                                                                :else nil))
-                                                       (when (.isMounted *component*)
-                                                         (replace-state! *component* (persistent! state))))))}))
+                                          (ds/unlisten! app (-> (ds/entity @app id) :state/placeholder-dragging)))}))
 
 
 
@@ -499,7 +532,7 @@
 
 
 ;Sortable
-(defn build-password-pos-mult [app pwd-id]
+#_(defn build-password-pos-mult [app pwd-id]
   (let [index-keys (data/get-index-keys data/get-password-pos app pwd-id)
         pwd-mult (async/mult (async/chan))
         callback (fn [{:keys [tx-data]}]
@@ -547,7 +580,7 @@
         (when (not-empty updated-keys)
           (select-keys new-sort-pwd updated-keys)))))
 
-(defn process-sortables [app]
+#_(defn process-sortables [app]
   (let [pwd-sort-state (atom {})
         ids-pos (data/get-password-ids-indexes-pos @app)
         index-keys (data/get-index-keys data/get-password-ids-indexes-pos app)
@@ -586,7 +619,7 @@
 (defn handle-new-sort-index! [id-indexes-map id new-sort-index]
   (assoc! id-indexes-map id {:sort-index new-sort-index}))
 
-(defn listen-passwords-ids-indexes! [comp app]
+#_(defn listen-passwords-ids-indexes! [comp app]
   (let [index-keys (data/get-index-keys data/get-password-ids-indexes app)
         callback (fn [{:keys [tx-data]}]
                    (when-let [state (get-state comp)]
@@ -619,31 +652,41 @@
        (map (fn [i [key {:keys [sort-index]}]] [key {:sort-index i}]) (range (count in-map)))
        (into {})))
 
+(defn apply-pos-updates [sort-state updates]
+  (let [sort-state (atom sort-state)]
+    (doseq [[ks v] updates]
+      (swap! sort-state assoc-in ks v))
+    @sort-state))
 
-(defn pos-callback [sort-state {:keys [tx-data]}]
-  (let [updates (mapcat (fn [datom]
-                          (match [datom]
-                                 [{:e     id
-                                   :a     :password/pos
-                                   :v     new-pos
-                                   :added true}]
-                                 [[id :pos] new-pos]
-                                 :else nil))
-                        tx-data)]
-    (apply (partial swap! sort-state assoc-in) updates)))
+
+(defn pos-callback [ids sort-state {:keys [tx-data]}]
+  (let [updates (->> (map (fn [datom]
+                            (match [datom]
+                                   [{:e     (id :guard (fn [id] (some #(= id %) @ids)))
+                                     :a     :password/pos
+                                     :v     new-pos
+                                     :added true}]
+                                   [[id :pos] new-pos]
+                                   :else nil))
+                          tx-data)
+                     (filter not-nil?))]
+    (when (not-empty updates)
+      (swap! sort-state apply-pos-updates updates))))
 
 
 (defn apply-index-updates [sort-state updates]
-  (loop [[[map-keys new-sort-index] & r] updates
-         sort-state sort-state]
-    (if (empty? r)
-      (assoc-in sort-state map-keys new-sort-index)
-      (recur r (assoc-in sort-state map-keys new-sort-index)))))
+  (->> (loop [[[map-keys new-sort-index] & r] updates
+             sort-state sort-state]
+        (if (empty? r)
+          (assoc-in sort-state map-keys new-sort-index)
+          (recur r (assoc-in sort-state map-keys new-sort-index))))
+       (sort-by (comp :sort-index val) compare*)
+       (into {})))
 
-(defn index-callback [sort-state {:keys [tx-data]}]
+(defn index-callback [ids sort-state {:keys [tx-data]}]
   (let [updates (map (fn [datom]
                           (match [datom]
-                                 [{:e     id
+                                 [{:e     (id :guard (fn [id] (some #(= id %) @ids)))
                                    :a     :state/sort-index
                                    :v     new-sort-index
                                    :added true}]
@@ -651,88 +694,152 @@
                                  :else nil))
                         tx-data)
         updates (filter not-nil? updates)]
-    (.log js/console (str "index-callback " updates))
-    (swap! sort-state apply-index-updates updates)))
+    (when (not-empty updates)
+      (swap! sort-state apply-index-updates updates))))
 
-(defn listen-pos! [app pos-callback id]
+#_(defn listen-pos! [app pos-callback id]
   (let [index-keys (->> (ds/pattern->index-keys [id :password/pos nil nil])
                         (into [app])
                         (conj #{}))]
     (ds/listen! app (keyword (str "sortable-pos-" id)) pos-callback index-keys)))
 
-(defn listen-index! [app index-callback id]
+#_(defn listen-index! [app index-callback id]
   (let [index-keys (->> (ds/pattern->index-keys [id :state/sort-index nil nil])
                         (into [app])
                         (conj #{}))]
     (ds/listen! app (keyword (str "sortable-index-" id)) index-callback index-keys)))
 
-(defn sortable-add-ids! [sort-state pos-callback index-callback app ids]
-  (doseq [id ids]
-    (listen-index! app index-callback id)
-    (listen-pos! app pos-callback id))
-  (doseq [id ids]
-    (let [index (-> (ds/entity @app id)
-                    :state/sort-index)]
-      (swap! sort-state assoc-in [id :sort-index] index))))
+(defn pos->index-keys* [app id]
+  (->> (ds/pattern->index-keys [id :password/pos nil nil])
+       (into [app])))
 
-(defn sortable-rem-ids! [sort-state app ids]
-  (doseq [id ids]
-    (ds/unlisten! app (keyword (str "sortable-index-" id)))
-    (ds/unlisten! app (keyword (str "sortable-pos-" id))))
-  (doseq [id ids]
-    (swap! sort-state dissoc id)))
+(defn sort-index->index-keys* [app id]
+  (->> (ds/pattern->index-keys [id :state/sort-index nil nil])
+       (into [app])))
+
+(defn pos->index-keys [app ids]
+  (->> (map (partial pos->index-keys* app) ids)
+       (into #{})))
+
+(defn sort-index->index-keys [app ids]
+  (->> (map (partial sort-index->index-keys* app) ids)
+       (into #{})))
 
 
-(defn listen-passwords-ids! [react-comp app ids]
+(defn sortable-add-ids [sort-state db ids]
+  (let [sort-state (atom sort-state)]
+    (doseq [id ids]
+      (let [index (-> (ds/entity db id)
+                      :state/sort-index)
+            pos (-> (ds/entity db id)
+                    :password/pos)]
+        (swap! sort-state assoc-in [id :sort-index] index)
+        (swap! sort-state assoc-in [id :pos] pos)))
+    (into {} (sort-by (comp :sort-index val) compare* @sort-state))))
+
+(defn sortable-rem-ids [sort-state ids]
+  (let [sort-state (atom sort-state)]
+    (doseq [id ids]
+      (swap! sort-state dissoc id))
+    (into {} (sort-by (comp :sort-index val) compare* @sort-state))))
+
+
+(defn sortable-no-nil-pos-add-ids [sort-state items n]
+  (let [sort-state (atom sort-state)]
+    (doseq [[id _] items]
+      (swap! sort-state assoc id (-> (get n id) (dissoc :sort-index))))
+    (into {} (sort-by (comp :pos val) @sort-state))))
+
+(defn sortable-no-nil-pos-rem-ids [sort-state ids]
+  (let [sort-state (atom sort-state)]
+    (doseq [id ids]
+      (swap! sort-state dissoc id))
+    (into {} (sort-by (comp :pos val) @sort-state))))
+
+(defn set-no-nil [coll]
+  (set coll))
+
+(defn keys-index-changed [m1 m2]
+  (let [[diff1 diff2 _] (clojure.data/diff (keys m1) (keys m2))]
+    (-> (clojure.set/intersection (set diff1) (set diff2))
+         (disj nil))))
+
+
+
+(defn listen-passwords-ids! [react-comp app ids chan-pos chan-sort-index]
   (let [db @app
         sort-state (atom {})
-        pos-callback (partial pos-callback sort-state)
-        index-callback (partial index-callback sort-state)
         sort-state-no-nil-pos (atom {})
         ids-callback (fn [_ _ o n]
+                       (ds/listen! app chan-pos (pos->index-keys app n))
+                       (ds/listen! app chan-sort-index (sort-index->index-keys app n))
                        (let [rem-ids (clojure.set/difference o n)
                              add-ids (clojure.set/difference n o)]
-                         (sortable-add-ids! sort-state pos-callback index-callback app add-ids)
-                         (sortable-rem-ids! sort-state app rem-ids)))
+                         (swap! sort-state sortable-add-ids @app add-ids)
+                         (swap! sort-state sortable-rem-ids rem-ids)))
         sort-state-callback (fn [_ _ o n]
-                              (.log js/console (str "sort-state " n))
                               (let [diff (clojure.data/diff o n)
-                                    rem-items (first (clojure.data/diff (keys (first diff))
+                                    #_rem-items #_(first (clojure.data/diff (keys (first diff))
                                                                          (keys (second diff))))
+                                    rem-items (->> (first diff)
+                                                   (filter (comp :pos val))
+                                                   (map first)
+                                                   (select-keys (second diff))
+                                                   (filter (comp nil? :pos val))
+                                                   (map first))
                                     add-items (->> (second diff)
                                                    (filter (comp :pos val)))]
-                                (doseq [id rem-items]
-                                  (swap! sort-state-no-nil-pos dissoc id))
-                                (doseq [[id _] add-items]
-                                  (swap! sort-state-no-nil-pos assoc id (get n id)))))]
+
+                                #_(reset! sort-state-no-nil-pos (->> (filter (comp :pos val) n)
+                                                                   (sort-by (comp :pos val))
+                                                                   (into {})))
+
+                                (when (not-empty add-items)
+                                  (swap! sort-state-no-nil-pos sortable-no-nil-pos-add-ids add-items n))
+                                (when (not-empty rem-items)
+                                  (swap! sort-state-no-nil-pos sortable-no-nil-pos-rem-ids rem-items))))]
+    (swap! sort-state sortable-add-ids @app @ids)
+    (swap! sort-state-no-nil-pos sortable-no-nil-pos-add-ids (vec @sort-state) @sort-state)
+    (go-loop []
+             (when-let [report (async/<! chan-pos)]
+               (pos-callback ids sort-state report)
+               (recur))
+             (async/close! chan-pos))
+    (go-loop []
+             (when-let [report (async/<! chan-sort-index)]
+               (index-callback ids sort-state report)
+               (recur))
+             (async/close! chan-sort-index))
     (add-watch sort-state-no-nil-pos :sort-state-no-nil-pos-updates
-               (fn [_ _ _ n]
-                 (let [sort-updates (->> (map (fn [[id _] [id-sorted _]]
+               (fn [_ _ o n]
+                 (let [keys-changed (keys-index-changed o n)
+                       o-filtered (->> (select-keys o keys-changed)
+                                       (sort-by (comp :pos val)))
+                       n-filtered (->> (select-keys n keys-changed)
+                                       (sort-by (comp :pos val)))
+                       sort-updates (->> (map (fn [[id _] [id-sorted _]]
                                                 (if (= id id-sorted)
                                                   nil
                                                   [id id-sorted]))
-                                              n
-                                              (sort-by (comp :pos val) n))
+                                              o-filtered n-filtered)
                                          (filter not-nil?)
-                                         (map (fn [[id new-sort-id]]
-                                                {id {:sort-index (-> (get n new-sort-id)
-                                                                     :sort-index)}}))
-                                         (apply merge))]
-                   (.log js/console (str "sort-updates " sort-updates))
+                                         (mapv (fn [[id new-sort-id]]
+                                                 (let [db @app]
+                                                   {:db/id            id
+                                                    :state/sort-index (-> (ds/entity db new-sort-id)
+                                                                          :state/sort-index)
+                                                    :state/init-pos (-> (ds/entity db new-sort-id)
+                                                                        :state/init-pos)
+                                                    :password/pos (-> (ds/entity db new-sort-id)
+                                                                      :state/init-pos)}))))]
                    (when (not-empty sort-updates)
-                     (data/set-sort-indexes! app sort-updates)))))
+                     (ds/transact! app sort-updates)))))
     (add-watch sort-state :sort-state->sort-state-no-nil-pos sort-state-callback)
     (add-watch sort-state :sort-state-updates (fn [_ _ _ n]
-                                                (->> (sort-by (comp :sort-index val) compare* n)
-                                                     (replace-state! react-comp))))
+                                                (replace-state! react-comp n)))
     (add-watch ids :ids-updates ids-callback)
-    (doseq [id @ids]
-      (listen-pos! app pos-callback id)
-      (listen-index! app index-callback id)
-      (let [pos (-> (ds/entity db id) :password/pos)
-            index (-> (ds/entity db id) :state/sort-index)]
-        (swap! sort-state assoc id {:sort-index index
-                                    :pos        pos})))))
+    (ds/listen! app chan-pos (pos->index-keys app @ids))
+    (ds/listen! app chan-sort-index (sort-index->index-keys app @ids))))
 
 
 (defn process-updated-index2 [diff]
@@ -800,6 +907,35 @@
 
   )
 
+(defn set-sortable-pos-chan! [app chan]
+  (ds/transact! app [{:db/id -1
+                      :sortable/chan-pos chan}]))
+
+(defn set-sortable-sort-index-chan! [app chan]
+  (ds/transact! app [{:db/id -1
+                      :sortable/chan-sort-index chan}]))
+
+(defn get-sortable-pos-chan-id [db]
+  (-> (ds/q '[:find ?id
+              :where [?id :sortable/chan-pos _]]
+            db)
+      data/only))
+
+(defn get-sortable-sort-index-chan-id [db]
+  (-> (ds/q '[:find ?id
+              :where [?id :sortable/chan-sort-index _]]
+            db)
+      data/only))
+
+(defn retract-sortable-pos-chan! [app]
+  (let [id (get-sortable-pos-chan-id @app)]
+    (ds/transact! app [[:db.fn/retractAttribute id :sortable/chan-pos]])))
+
+(defn retract-sortable-sort-index-chan! [app]
+  (let [id (get-sortable-sort-index-chan-id @app)]
+    (ds/transact! app [[:db.fn/retractAttribute id :sortable/chan-sort-index]])))
+
+;TODO Store sortable-mixin id locally since there can be multiple sortable-mixin
 (def sortable-mixin
   (mixin
     {:getInitialState      (fn [_ {:keys [app]}]
@@ -807,14 +943,20 @@
                                                                      :state/sort-index)}})
                                        @(.-ids *component*))
                                   (apply merge)
-                                  (sort-by (comp :sort-index val) compare*)))
+                                  (sort-by (comp :sort-index val) compare*)
+                                  (into {})))
      :componentDidMount    (fn [_ _ {:keys [app]}]
-                             (listen-passwords-ids! *component* app (.-ids *component*)))
+                             (let [chan-pos (async/chan)
+                                   chan-sort-index (async/chan)]
+                               (set-sortable-pos-chan! app chan-pos)
+                               (set-sortable-sort-index-chan! app chan-sort-index)
+                               (listen-passwords-ids! *component* app (.-ids *component*) chan-pos chan-sort-index)))
      :componentWillUnmount (fn [_ state {:keys [app]}]
                              (remove-watch (.-ids *component*) :ids-updates)
-                             (doseq [id @(.-ids *component*)]
-                               (ds/unlisten! app (keyword (str "sortable-index-" id)))
-                               (ds/unlisten! app (keyword (str "sortable-pos-" id)))))}))
+                             (ds/unlisten! app (->> (get-sortable-pos-chan-id @app) (ds/entity @app) :sortable/chan-pos))
+                             (ds/unlisten! app (->> (get-sortable-sort-index-chan-id @app) (ds/entity @app) :sortable/chan-sort-index))
+                             (retract-sortable-pos-chan! app)
+                             (retract-sortable-sort-index-chan! app))}))
 
 
 
@@ -827,31 +969,40 @@
                                                  (map (fn [[id _]]
                                                         (placeholder {:id id} {:app app} {:key id :ref id}))
                                                       state)]))
-                  #_:mixins               #_#js [sortable-mixin]
+                  :mixins               #js [sortable-mixin]
                   :ids                  (atom #{})
-                  :componentWillMount   (fn [_ _ {:keys [app]}]
+                  #_:getInitialState #_(fn [_ {:keys [app]}]
+                                     (->> (data/get-list-passwords @app)
+                                          (map (fn [[id]] {id {:sort-index nil}}))
+                                          (apply merge)))
+                  :componentDidMount   (fn [_ _ {:keys [app]}]
                                           (let [react-comp *component*
                                                 index-keys (data/get-index-keys data/get-list-passwords app)
-                                                ids (data/get-list-passwords @app)]
-                                            (ds/listen! app (aget *component* "ids-callback") index-keys)
+                                                ids (data/get-list-passwords @app)
+                                                chan (async/chan)]
+                                            (go-loop []
+                                                     (when-let [{:keys [tx-data]} (async/<! chan)]
+                                                       (doseq [datom tx-data]
+                                                         (match [datom]
+                                                                [{:e     pwd-id
+                                                                  :a     :password/label
+                                                                  :v     _
+                                                                  :added true}]
+                                                                (swap! (.-ids react-comp) conj pwd-id)
+                                                                [{:e     pwd-id
+                                                                  :a     :password/label
+                                                                  :v     _
+                                                                  :added false}]
+                                                                (swap! (.-ids react-comp) disj pwd-id)
+                                                                :else nil)))
+                                                     (async/close! chan))
+                                            (data/set-pwd-list-chan! app chan)
+                                            (ds/listen! app chan index-keys)
                                             (doseq [[id] ids]
                                               (swap! (.-ids *component*) conj id))))
                   :componentWillUnmount (fn [_ _ {:keys [app]}]
-                                          (ds/unlisten! app (aget *component* "ids-callback")))
-                  :ids-callback (fn [{:keys [tx-data]}]
-                                  (doseq [datom tx-data]
-                                    (match [datom]
-                                           [{:e     pwd-id
-                                             :a     :password/label
-                                             :v     _
-                                             :added true}]
-                                           (swap! (.-ids *component*) conj pwd-id)
-                                           [{:e     pwd-id
-                                             :a     :password/label
-                                             :v     _
-                                             :added false}]
-                                           (swap! (.-ids *component*) disj pwd-id)
-                                           :else nil)))}))
+                                          (ds/unlisten! app (data/get-pwd-list-chan @app))
+                                          (data/retract-pwd-list-chan! app))}))
 
 
 

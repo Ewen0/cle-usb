@@ -6,8 +6,8 @@
   :source-paths ["src" "src-cljs" "/home/ewen/clojure/datascript/src"]
   :test-paths ["test" "test-server"]
   :dependencies [[org.clojure/clojure "1.6.0"]
-                 [org.clojure/clojurescript "0.0-2268"]
-                 [org.clojure/core.async "0.1.278.0-76b25b-alpha"]
+                 [org.clojure/clojurescript "0.0-2311"]
+                 [org.clojure/core.async "0.1.319.0-6b1aca-alpha"]
                  [domina "1.0.2"]
                  [sablono "0.2.6"]
                  [org.clojure/core.match "0.2.1"]
@@ -30,4 +30,6 @@
                         :output-dir "resources/public/cljs/"
                         :optimizations :none
                         :source-map true
-                        :libs ["resources/public/js/dom-delegate.js"]}}]})
+                        :libs ["resources/public/js/dom-delegate.js"]}}]}
+  :jvm-opts ["-Xss1G"]                                         ;Avoid stackoverflow when compiling clojurescript (for example, large go-loop macros)
+  )
