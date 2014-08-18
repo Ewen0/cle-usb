@@ -54,7 +54,7 @@
                                                            [(com.ewen.cle-usb.data/maybe $ ?id :password/height nil) ?height]]
                              data))
 
-   (macroexpand-1 '(defquery get-list-passwords :cache true
+   (macroexpand-1 '(defquery get-list-passwords
                              [data] '[:find ?id ?label ?dragging ?sort-index
                                       :in $ ?maybe
                                       :where [?id :password/label ?label]

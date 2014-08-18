@@ -94,10 +94,20 @@
 
 
 
-(defquery get-list-passwords
+(defquery get-list-passwords*
           [data] '[:find ?id
                    :in $
                    :where [?id :password/label ?label]] data)
+
+(def get-list-passwords (reify
+                          cljs.core/IFn
+                          (-invoke [this data]
+                            (->> (get-list-passwords* data)
+                                (apply concat)
+                                set))
+                          IndexKeys
+                          (get-index-keys [this conn]
+                            (get-index-keys get-list-passwords* conn))))
 
 
 
