@@ -3,7 +3,8 @@
             [ewen.wreak :refer [*component* mixin replace-state! get-state]]
             [datascript :as ds]
             [cljs.core.match]
-            [clojure.data])
+            [clojure.data]
+            [schema.core :as s])
   (:require-macros [cljs.core.async.macros :refer [go go-loop]]
                    [cljs.core.match.macros :refer [match]]))
 
@@ -24,17 +25,16 @@
   (replace-state! comp (-> (get-state comp)
                             (merge {::sortable-state new-state}))))
 
-(defn compare* [x y]
+(defn compare*
+  "Same as compare, but a nil value is 'more'
+  than a non-nil value."
+  [x y]
   (cond
     (and (nil? x) (not-nil? y)) 1
     (and (nil? y) (not-nil? x)) -1
     :else (compare x y)))
 
 
-(defn normalize-sort-indexes [in-map]
-  (->> (sort-by (comp :sort-index second) compare* in-map)
-       (map (fn [i [key {:keys [sort-index]}]] [key {:sort-index i}]) (range (count in-map)))
-       (into {})))
 
 (defn apply-pos-updates [sort-state updates]
   (let [sort-state (atom sort-state)]
@@ -117,7 +117,6 @@
 
 
 (defn sortable-no-nil-pos-add-ids
-  ""
   [sort-state items]
   (let [sort-state (atom sort-state)]
     (doseq [item items]
@@ -133,7 +132,10 @@
 (defn set-no-nil [coll]
   (set coll))
 
-(defn keys-index-changed [m1 m2]
+(defn keys-index-changed
+  "Given 2 maps, return a set of the keys that are in both maps
+   but not at the same position"
+  [m1 m2]
   (let [[diff1 diff2 _] (clojure.data/diff (keys m1) (keys m2))]
     (-> (clojure.set/intersection (set diff1) (set diff2))
         (disj nil))))
@@ -172,12 +174,55 @@
         (swap! sort-state-no-nil-pos sortable-no-nil-pos-rem-ids rem-items)))))
 
 
+(defn handle-item-new-sort-index
+  [db [id new-sort-id]]
+  (cond-> {:db/id            id
+           :state/sort-index (-> (ds/entity db new-sort-id)
+                                 :state/sort-index)
+           :state/init-pos   (-> (ds/entity db new-sort-id)
+                                 :state/init-pos)}
+          #(-> (ds/entity db id)
+               :state/dragging)
+          (assoc :password/pos (-> (ds/entity db new-sort-id)
+                                   :state/init-pos))))
+
+(defn build-process-sortable [app]
+  (fn ^{:doc "Sort the entities by :pos. When the sort order changed,
+    update the entities attributes accordingly."}
+    process-sortable
+    [_ _ o n]
+    (let [keys-changed (keys-index-changed o n)
+          o-filtered (->> (select-keys o keys-changed)
+                          (sort-by (comp :pos val)))
+          n-filtered (->> (select-keys n keys-changed)
+                          (sort-by (comp :pos val)))
+          sort-updates (->> (map (fn [[id _] [id-sorted _]]
+                                   (if (= id id-sorted)
+                                     nil
+                                     [id id-sorted]))
+                                 o-filtered n-filtered)
+                            (filter not-nil?)
+                            (mapv (partial handle-item-new-sort-index @app)))]
+      (when (not-empty sort-updates)
+        (ds/transact! app sort-updates)))))
+
+
 
 (defn listen-passwords-ids! [react-comp app ids chan-pos chan-sort-index]
-  (let [sort-state (atom {})
-        sort-state-no-nil-pos (atom {})
-        ids-callback (ids->sort-state-builder app sort-state chan-pos chan-sort-index)
-        sort-state-callback (sort-state->sort-state-no-nil-pos-builder sort-state-no-nil-pos)]
+  (let [ ;The map keys are the entities to be sorted ids.
+         sort-state-schema {s/Int {:sort-index (s/maybe s/Int)
+                                   :pos (s/maybe s/Int)}}
+         ;sort-state is a "local view" of the sorted entities and is used to update the state
+         ;of the react component when needed
+         sort-state (atom {})
+         ;sort-state-no-nil-pos is a "local view" of the sorted entities and is used to recompute
+         ;the sorting order of every entities when they are dragged over. Only the entities with a
+         ;position are concidered since the position is used to recompute the sort order.
+         sort-state-no-nil-pos (atom {})
+         ;The map keys are the entities to be sorted ids.
+         sort-state-schema {s/Int {:pos s/Int}}
+         ids-callback (ids->sort-state-builder app sort-state chan-pos chan-sort-index)
+         sort-state-callback (sort-state->sort-state-no-nil-pos-builder sort-state-no-nil-pos)]
     ;Initialize sort-state and sort-state-no-nil-pos.
     (swap! sort-state sortable-add-ids @app @ids)
     (swap! sort-state-no-nil-pos sortable-no-nil-pos-add-ids
@@ -201,32 +246,7 @@
                    (swap! sort-state apply-index-updates updates)))
                (recur))
              (async/close! chan-sort-index))
-    (add-watch sort-state-no-nil-pos :sort-state-no-nil-pos-updates
-               (fn [_ _ o n]
-                 (let [keys-changed (keys-index-changed o n)
-                       o-filtered (->> (select-keys o keys-changed)
-                                       (sort-by (comp :pos val)))
-                       n-filtered (->> (select-keys n keys-changed)
-                                       (sort-by (comp :pos val)))
-                       sort-updates (->> (map (fn [[id _] [id-sorted _]]
-                                                (if (= id id-sorted)
-                                                  nil
-                                                  [id id-sorted]))
-                                              o-filtered n-filtered)
-                                         (filter not-nil?)
-                                         (mapv (fn [[id new-sort-id]]
-                                                 (let [db @app]
-                                                   (cond-> {:db/id            id
-                                                            :state/sort-index (-> (ds/entity db new-sort-id)
-                                                                                  :state/sort-index)
-                                                            :state/init-pos   (-> (ds/entity db new-sort-id)
-                                                                                  :state/init-pos)}
-                                                           #(-> (ds/entity db id)
-                                                               :state/dragging)
-                                                           (assoc :password/pos (-> (ds/entity db new-sort-id)
-                                                                                    :state/init-pos)))))))]
-                   (when (not-empty sort-updates)
-                     (ds/transact! app sort-updates)))))
+    (add-watch sort-state-no-nil-pos :sort-state-no-nil-pos-updates (build-process-sortable app))
     (add-watch sort-state :sort-state->sort-state-no-nil-pos sort-state-callback)
     (add-watch sort-state :sort-state-updates (fn [_ _ _ n]
                                                 (sortable-replace-state! react-comp n)))
