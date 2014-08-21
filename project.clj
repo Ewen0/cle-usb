@@ -18,6 +18,7 @@
                            [com.cemerick/clojurescript.test "0.3.1"]
                            [org.clojure/core.match "0.2.1"]
                            [com.palletops/pallet "0.8.0-RC.9"]
+                           [com.palletops/pallet-repl "0.8.0-beta.2"]
                            [prismatic/schema "0.2.6"]]
             :dev-dependencies [[lein-cljsbuild "1.0.3"]]
             :plugins [[lein-cljsbuild "1.0.3"]]
