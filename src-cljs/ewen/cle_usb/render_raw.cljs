@@ -14,7 +14,7 @@
             [goog.style :as gstyle]
             [ewen.wreak :as w :refer [*component* mixin component
                                       replace-state! get-state]]
-            [ewen.wreak.sortable :refer [sortable-mixin]])
+            [ewen.wreak.sortable2 :refer [sortable-mixin]])
   (:require-macros [cljs.core.async.macros :refer [go go-loop]]
                    [cljs.core.match.macros :refer [match]]))
 
@@ -406,7 +406,7 @@
 (def passwords-list
   (component "passwords-list"
                  {:render               (fn [_ state {:keys [app]}]
-                                          (let [state (:ewen.wreak.sortable/sortable-state state)]
+                                          (let [state (:ewen.wreak.sortable2/sortable-state state)]
                                             (html [:div#list-pwd
                                                    (map (fn [[id _]]
                                                           (placeholder {:id id} {:app app} {:key id :ref id}))
