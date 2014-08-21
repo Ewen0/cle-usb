@@ -24,10 +24,10 @@
 (def cle-usb-group
   (group-spec
     "cle-usb"
-    :phases {:bootstrap (plan-fn
+    :phases {:configure (plan-fn
                           (automated-admin-user
                             "ewen"
-                            (-> (clojure.java.io/resource "ops/ewen-server.ppk")
+                            (-> (clojure.java.io/resource "ops/ewen-server.pub")
                               (.getPath))))}))
 
 (defn execute
@@ -44,6 +44,6 @@
     (make-user "root"
                :private-key-path "~/.ssh/ewen-server"
                :public-key-path "~/.ssh/ewen-server.pub")
-    (def s (execute :bootstrap)))
+    (def s (execute :configure)))
   )
 
