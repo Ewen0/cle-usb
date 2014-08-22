@@ -23,7 +23,10 @@
 
 (defn sortable-replace-state! [comp new-state]
   (replace-state! comp (-> (get-state comp)
-                            (merge {::sortable-state new-state}))))
+                           (merge {::sortable-state new-state}))))
+
+(defn sortable-get-state [comp]
+  (-> (get-state comp) ::sortable-state))
 
 (defn compare*
   "Same as compare, but a nil value is 'more'
@@ -38,9 +41,11 @@
 
 (defn apply-pos-updates [sort-state updates]
   (let [sort-state (atom sort-state)]
-    (doseq [[ks v] updates]
-      (swap! sort-state assoc-in ks v))
-    @sort-state))
+    (doseq [[k v] updates]
+      (if (nil? v)
+        (swap! sort-state dissoc k)
+        (swap! sort-state assoc-in k v)))
+    (into {} (sort-by (comp :pos val) compare* @sort-state))))
 
 
 (defn pos-callback [ids {:keys [tx-data]}]
@@ -51,17 +56,22 @@
                                 :v     new-pos
                                 :added true}]
                               [[id :pos] new-pos]
+                              [{:e     (id :guard (fn [id] (some #(= id %) ids)))
+                                :a     :password/pos
+                                :v     _
+                                :added false}]
+                              [[id :pos] nil]
                               :else nil))
                      tx-data)]
     (filter not-nil? updates)))
 
 
 (defn apply-index-updates [sort-state updates]
-  (->> (loop [[[map-keys new-sort-index] & r] updates
+  (->> (loop [[[id new-sort-index] & r] updates
               sort-state sort-state]
          (if (empty? r)
-           (assoc-in sort-state map-keys new-sort-index)
-           (recur r (assoc-in sort-state map-keys new-sort-index))))
+           (assoc-in sort-state id new-sort-index)
+           (recur r (assoc-in sort-state id new-sort-index))))
        (sort-by (comp :sort-index val) compare*)
        (into {})))
 
@@ -73,6 +83,11 @@
                                 :v     new-sort-index
                                 :added true}]
                               [[id :sort-index] new-sort-index]
+                              [{:e     (id :guard (fn [id] (some #(= id %) ids)))
+                                :a     :state/sort-index
+                                :v     _
+                                :added false}]
+                              [[id :sort-index] nil]
                               :else nil))
                      tx-data)]
     (filter not-nil? updates)))
@@ -101,36 +116,29 @@
   [sort-state db ids]
   (let [sort-state (atom sort-state)]
     (doseq [id ids]
-      (let [index (-> (ds/entity db id)
-                      :state/sort-index)
-            pos (-> (ds/entity db id)
+      (let [pos (-> (ds/entity db id)
                     :password/pos)]
-        (swap! sort-state assoc-in [id :sort-index] index)
-        (swap! sort-state assoc-in [id :pos] pos)))
+        (when (not-nil? pos)
+          (swap! sort-state assoc-in [id :pos] pos))))
+    (into {} (sort-by (comp :pos val) compare* @sort-state))))
+
+(defn comp-state-add-ids
+  [state db ids]
+  (let [sort-state (atom state)]
+    (doseq [id ids]
+      (let [index (-> (ds/entity db id)
+                      :state/sort-index)]
+        (swap! sort-state assoc-in [id :sort-index] index)))
     (into {} (sort-by (comp :sort-index val) compare* @sort-state))))
 
-(defn sortable-rem-ids [sort-state ids]
-  (let [sort-state (atom sort-state)]
+(defn remove-ids [state ids]
+  (let [sort-state (atom state)]
     (doseq [id ids]
       (swap! sort-state dissoc id))
-    (into {} (sort-by (comp :sort-index val) compare* @sort-state))))
+    @sort-state))
 
 
-(defn sortable-no-nil-pos-add-ids
-  [sort-state items]
-  (let [sort-state (atom sort-state)]
-    (doseq [item items]
-      (swap! sort-state merge (dissoc item :sort-index)))
-    (into {} (sort-by (comp :pos val) @sort-state))))
 
-(defn sortable-no-nil-pos-rem-ids [sort-state ids]
-  (let [sort-state (atom sort-state)]
-    (doseq [id ids]
-      (swap! sort-state dissoc id))
-    (into {} (sort-by (comp :pos val) @sort-state))))
-
-(defn set-no-nil [coll]
-  (set coll))
 
 (defn keys-index-changed
   "Given 2 maps, return a set of the keys that are in both maps
@@ -140,38 +148,27 @@
     (-> (clojure.set/intersection (set diff1) (set diff2))
         (disj nil))))
 
-(defn ids->sort-state-builder [app sort-state chan-pos chan-sort-index]
-  (fn ids->sort-state [_ _ old-ids new-ids]
+(defn update-listen-ids-builder [app chan-pos chan-sort-index]
+  (fn update-listen-ids [_ _ old-ids new-ids]
     (ds/listen! app chan-pos (pos->index-keys app new-ids))
-    (ds/listen! app chan-sort-index (sort-index->index-keys app new-ids))
+    (ds/listen! app chan-sort-index (sort-index->index-keys app new-ids))))
+
+(defn ids->sort-state-builder [app sort-state]
+  (fn ids->sort-state [_ _ old-ids new-ids]
     (let [rem-ids (clojure.set/difference old-ids new-ids)
           add-ids (clojure.set/difference new-ids old-ids)]
-      (swap! sort-state sortable-add-ids @app add-ids)
-      (swap! sort-state sortable-rem-ids rem-ids))))
+      (swap! sort-state (comp #(sortable-add-ids % @app add-ids)
+                              #(remove-ids % rem-ids))))))
 
+(defn ids->comp-state-builder [app comp]
+  (fn ids->comp-state [_ _ old-ids new-ids]
+    (let [rem-ids (clojure.set/difference old-ids new-ids)
+          add-ids (clojure.set/difference new-ids old-ids)
+          state (sortable-get-state comp)
+          state (comp-state-add-ids state @app add-ids)
+          state (remove-ids state rem-ids)]
+      (sortable-replace-state! comp state))))
 
-(defn sort-state->sort-state-no-nil-pos-builder [sort-state-no-nil-pos]
-  (fn sort-state->sort-state-no-nil-pos [_ _ old-sort-state new-sort-state]
-    (let [diff (clojure.data/diff old-sort-state new-sort-state)
-          ;Items to be removed from sort-state-no-nil-pos:
-          ;All items that had a :pos in old-sort-state but not anymore
-          ;in new-sort-state.
-          rem-items (->> (first diff)
-                         (filter (comp :pos val))
-                         (map first)
-                         (select-keys (second diff))
-                         (filter (comp nil? :pos val))
-                         (map first))
-          ;Items to be added to sort-state-no-nil-pos:
-          ;All items that have a :pos in new-sort-state.
-          add-items-ids (->> (second diff)
-                             (filter (comp :pos val))
-                             (map (fn [[id _]] id)))
-          add-items (map #(select-keys new-sort-state [%]) add-items-ids)]
-      (when (not-empty add-items)
-        (swap! sort-state-no-nil-pos sortable-no-nil-pos-add-ids add-items))
-      (when (not-empty rem-items)
-        (swap! sort-state-no-nil-pos sortable-no-nil-pos-rem-ids rem-items)))))
 
 
 (defn handle-item-new-sort-index
@@ -212,20 +209,14 @@
   (let [ ;The map keys are the entities to be sorted ids.
          sort-state-schema {s/Int {:sort-index (s/maybe s/Int)
                                    :pos (s/maybe s/Int)}}
-         ;sort-state is a "local view" of the sorted entities and is used to update the state
-         ;of the react component when needed
-         sort-state (atom {})
          ;sort-state-no-nil-pos is a "local view" of the sorted entities and is used to recompute
          ;the sorting order of every entities when they are dragged over. Only the entities with a
-         ;position are concidered since the position is used to recompute the sort order.
-         sort-state-no-nil-pos (atom {})
+         ;position are considered since the position is used to recompute the sort order.
+         sort-state (atom {})
          ;The map keys are the entities to be sorted ids.
          sort-state-schema {s/Int {:pos s/Int}}]
     ;Initialize sort-state and sort-state-no-nil-pos.
     (swap! sort-state sortable-add-ids @app @ids)
-    (swap! sort-state-no-nil-pos sortable-no-nil-pos-add-ids
-           (map (fn [k v] {k (dissoc v :sort-index)})
-                @sort-state))
     ;For every position update of any entities, report the position update
     ;back into sort-state and sort-state-no-nil-pos
     (go-loop []
@@ -241,14 +232,14 @@
              (when-let [report (async/<! chan-sort-index)]
                (let [updates (index-callback @ids report)]
                  (when (not-empty updates)
-                   (swap! sort-state apply-index-updates updates)))
+                   (let [state (sortable-get-state react-comp)]
+                     (sortable-replace-state! react-comp (apply-index-updates state updates)))))
                (recur))
              (async/close! chan-sort-index))
-    (add-watch sort-state-no-nil-pos :sort-state-no-nil-pos-updates (build-process-sortable app))
-    (add-watch sort-state :sort-state->sort-state-no-nil-pos (sort-state->sort-state-no-nil-pos-builder sort-state-no-nil-pos))
-    (add-watch sort-state :sort-state-updates (fn [_ _ _ n]
-                                                (sortable-replace-state! react-comp n)))
-    (add-watch ids :ids-updates (ids->sort-state-builder app sort-state chan-pos chan-sort-index))
+    (add-watch sort-state :sort-state-updates (build-process-sortable app))
+    (add-watch ids :ids-updates (juxt  (update-listen-ids-builder app chan-pos chan-sort-index)
+                                       (ids->comp-state-builder app react-comp)
+                                       (ids->sort-state-builder app sort-state)))
     (ds/listen! app chan-pos (pos->index-keys app @ids))
     (ds/listen! app chan-sort-index (sort-index->index-keys app @ids))))
 
@@ -288,7 +279,7 @@
                              (let [chan-pos (async/chan)
                                    chan-sort-index (async/chan)]
                                (->> (set-sortable-pos-chan! app chan-pos)
-                                   (aset *component* ::pos-chan-id))
+                                    (aset *component* ::pos-chan-id))
                                (->> (set-sortable-sort-index-chan! app chan-sort-index)
                                     (aset *component* ::sort-index-chan-id))
                                (listen-passwords-ids! *component* app (.-ids *component*) chan-pos chan-sort-index)))
