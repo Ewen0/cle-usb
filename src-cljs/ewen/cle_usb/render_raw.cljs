@@ -14,7 +14,9 @@
             [goog.style :as gstyle]
             [ewen.wreak :as w :refer [*component* mixin component
                                       replace-state! get-state]]
-            [ewen.wreak.sortable :refer [sortable-mixin]])
+            [ewen.wreak.sortable :refer [sortable-mixin]]
+            [ewen.wreak.dd-target :refer [dd-target-mixin dd-target-mixin-render]]
+            [ewen.wreak.dd-handle :refer [dd-handle-mixin]])
   (:require-macros [cljs.core.async.macros :refer [go go-loop]]
                    [cljs.core.match.macros :refer [match]]))
 
@@ -55,40 +57,10 @@
      :click :click}))
 
 
-;Drag and drop
-(defn event->pos [e]
-  (let [e (-> (raw-event e)
-              (.getBrowserEvent))]
-    (if (.-changedTouches e)
-      {:x (-> e (.-changedTouches)
-              (.item 0)
-              (.-pageX))
-       :y (-> e (.-changedTouches)
-              (.item 0)
-              (.-pageY))}
-      {:x (.-pageX e) :y (.-pageY e)})))
 
-(defn g-pos->pos [g-pos]
-  {:x (.-x g-pos) :y (.-y g-pos)})
 
-(defn dd-down-callback [app id e]
-  (prevent-default e)
-  (data/set-dragging! app id true)
-  (data/set-handle-pos! app id (let [init-pos (data/get-init-pos @app id)]
-                                 (- (:y (event->pos e)) init-pos))))
 
-(defn dd-up-callback [app id]
-  (data/set-dragging! app id false))
 
-(defn merge-pos
-  [pos handle-pos]
-  (- (:y pos) handle-pos))
-
-(defn dd-move-callback [app id e]
-  (when (data/get-dragging @app id)
-    (let [handle-pos (-> (ds/entity @app id) :state/handle-pos)]
-      (data/set-pwd-pos! app id (merge-pos (event->pos e)
-                                           handle-pos)))))
 
 
 
@@ -187,58 +159,9 @@
                                          (ds/unlisten! app (-> (ds/entity @app id) :password-button-callback)))}))
 
 
-(defn listen-dragging-helper! [app pwd-id callback]
-  (let [index-keys (data/get-index-keys data/get-dragging app pwd-id)]
-    (ds/listen! app callback index-keys)))
-
-(defn listen-dragging! [app id callback]
-  (listen-dragging-helper! app id callback))
 
 
 
-(def dd-handle-mixin
-  (mixin
-    {:componentDidMount (fn [{:keys [id]} _ {:keys [app]}]
-                          (listen! (.getDOMNode *component*)
-                                   (:down event-types)
-                                   #(dd-down-callback app id %))
-                          (let [chan (async/chan)]
-                            (go-loop []
-                                     (when-let [{:keys [tx-data]} (async/<! chan)]
-                                       (doseq [datom tx-data]
-                                         (match [datom]
-                                                [{:e     id
-                                                  :a     :state/dragging
-                                                  :v     true
-                                                  :added true}] (do (listen! (:move event-types)
-                                                                             #(dd-move-callback app id %))
-                                                                    (listen! (:up event-types)
-                                                                             #(dd-up-callback app id)))
-                                                :else nil))
-                                       (recur))
-                                     (async/close! chan))
-                            (data/set-attr! app id :handle-start-dragging-chan chan)
-                            (listen-dragging! app id chan))
-                          (let [chan (async/chan)]
-                            (go-loop []
-                                     (when-let [{:keys [tx-data]} (async/<! chan)]
-                                       (doseq [datom tx-data]
-                                         (match [datom]
-                                                [{:e     id
-                                                  :a     :state/dragging
-                                                  :v     false
-                                                  :added true}] (do (unlisten! domina/root-element (:move event-types))
-                                                                    (unlisten! domina/root-element (:up event-types)))
-                                                :else nil))
-                                       (recur))
-                                     (async/close! chan))
-                            (data/set-attr! app id :handle-stop-dragging-chan chan)
-                            (listen-dragging! app id chan)))
-     :componentWillUnmount (fn [{:keys [id]} _ {:keys [app]}]
-                             (unlisten! (.getDOMNode *component*)
-                                        (:down event-types))
-                             (ds/unlisten! app (-> (ds/entity @app id) :handle-start-dragging-chan))
-                             (ds/unlisten! app (-> (ds/entity @app id) :handle-stop-dragging-callback)))}))
 
 (def password-handle
   (component "password-handle"
@@ -253,94 +176,14 @@
 
 
 
-(defn listen-password-dragging! [comp app pwd-id callback]
+(defn listen-password-dragging! [app pwd-id callback]
   (let [index-keys (data/get-index-keys data/get-dragging app pwd-id)]
     (ds/listen! app callback
                 index-keys)))
 
-(defn listen-password-pos! [comp app pwd-id callback]
-  (let [index-keys (data/get-index-keys data/get-password-pos app pwd-id)]
-    (ds/listen! app
-                callback
-                index-keys)))
 
-(def dd-target-mixin-render
-  (fn [{:keys [id]}
-       {:keys [dragging pos] :as state}
-       {:keys [app]}
-       render-comp]
-    (let [node (when (.isMounted *component*) (.getDOMNode *component*))
-          width (if node (.-width (gstyle/getSize node)) nil)
-          height (if node (.-height (gstyle/getSize node)) nil)
-          #__ #_(.log js/console (str id " " dragging " " pos))
-          style-pos (if (and dragging pos)
-                      {:position "absolute" :top pos}
-                      {:position "static" :z-index 0})
-          dim (if width {:width width} {})
-          dim (merge dim (if height {:height height} {}))
-          style (merge dim style-pos)]
-      (.cloneWithProps js/React.addons render-comp (clj->js {:style style})))))
 
-(def dd-target-mixin
-  (mixin
-    {:getInitialState (fn [{:keys [id]} {:keys [app]}]
-                        {:dragging (data/get-dragging @app id)
-                         :pos      (-> (ds/entity @app id) :password/pos)})
-     :componentWillUnmount (fn [{:keys [id]} _ {:keys [app]}]
-                             (ds/unlisten! app (-> (ds/entity @app id) :dd-target-dragging-chan))
-                             (ds/unlisten! app (-> (ds/entity @app id) :dd-target-pos-chan)))
-     :componentDidMount (fn [{:keys [id]} _ {:keys [app]}]
-                          (let [comp *component*
-                                chan (async/chan)]
-                            (go-loop []
-                                     (when-let [{:keys [tx-data]} (async/<! chan)]
-                                       (when-let [state (get-state comp)]
-                                         (let [state (transient state)]
-                                           (doseq [datom tx-data]
-                                             (match [datom]
-                                                    [{:e     id
-                                                      :a     :state/dragging
-                                                      :v     dragging
-                                                      :added true}] (assoc! state :dragging dragging)
-                                                    :else nil))
-                                           (when (.isMounted comp)
-                                             (replace-state! comp (persistent! state)))))
-                                       (recur))
-                                     (async/close! chan))
-                            (data/set-attr! app id :dd-target-dragging-chan chan)
-                            (listen-password-dragging! *component* app id chan))
 
-                          (let [comp *component*
-                                chan (async/chan)]
-                            (go-loop []
-                                     (when-let [{:keys [tx-data]} (async/<! chan)]
-                                       (when-let [state (get-state comp)]
-                                         (let [state (transient state)]
-                                           (doseq [datom tx-data]
-                                             (match [datom]
-                                                    [{:e     id
-                                                      :a     :password/pos
-                                                      :v     pos
-                                                      :added true}] (assoc! state :pos pos)
-                                                    :else nil))
-                                           (when (.isMounted comp)
-                                             (replace-state! comp (persistent! state)))))
-                                       (recur))
-                                     (async/close! chan))
-                            (data/set-attr! app id :dd-target-pos-chan chan)
-                            (listen-password-pos! *component* app id chan))
-
-                          (let [node (.getDOMNode *component*)
-                                init-pos (gstyle/getPosition node)]
-                            (data/set-init-pos! app id (-> (g-pos->pos init-pos) :y))
-                            (data/set-pwd-pos! app id (-> (g-pos->pos init-pos) :y))))
-     :componentDidUpdate (fn [_ {:keys [id]} old-state new-state {:keys [app]}]
-                           (when (and (:dragging old-state)
-                                      (not (:dragging new-state)))
-                             (let [node (.getDOMNode *component*)
-                                   init-pos (gstyle/getPosition node)]
-                               (data/set-init-pos! app id (-> (g-pos->pos init-pos) :y))
-                               (data/set-pwd-pos! app id (-> (g-pos->pos init-pos) :y)))))}))
 
 (def password
   (component "password"
@@ -349,6 +192,7 @@
                                {:keys [app]}]
                             (->> (html [:div.password
                                         (password-button {:id id} {:app app})
+                                        ;The element to click on in order to start to drag the password
                                         (password-handle {:id id} {:app app})])
                                  (dd-target-mixin-render {:id id}
                                                   {:dragging dragging :pos pos}
@@ -357,19 +201,18 @@
 
 
 
-
+;Placeholder empty div. This is to avoid the whole list of passwords
+;to move when a password switch to the dragging state.
 (def placeholder
   (component "placeholder"
                  {:render (fn [{:keys [id]}
-                               {:keys [dragging width height] :as state}
+                               {:keys [dragging] :as state}
                                {:keys [app]}]
                             (let [width (aget *component* "width")
                                   height (aget *component* "height")
                                   dim (if width {:width width} {})
                                   dim (merge dim (if height {:height height} {}))]
                               (html [:div (password {:id id} {:app app})
-                                     ;Placeholder empty div. This is to avoid the whole list of passwords
-                                     ;to move when a password switch to the dragging state.
                                      (when dragging
                                        [:div {:style (clj->js dim)}])])))
                   :getInitialState (fn [{:keys [id]} {:keys [app]}]
@@ -393,7 +236,7 @@
                                                           (replace-state! comp (persistent! state)))))
                                                     (recur))
                                                   (async/close! chan))
-                                         (listen-password-dragging! comp app id chan))
+                                         (listen-password-dragging! app id chan))
                                        (aset *component* "with" (.-width (gstyle/getSize (.getDOMNode *component*))))
                                        (aset *component* "height" (.-height (gstyle/getSize (.getDOMNode *component*)))))
                   :componentWillUnmount (fn [{:keys [id]} _ {:keys [app]}]
@@ -440,37 +283,6 @@
                   :componentWillUnmount (fn [_ _ {:keys [app]}]
                                           (ds/unlisten! app (data/get-pwd-list-chan @app))
                                           (data/retract-pwd-list-chan! app))}))
-
-
-
-#_(def passwords-list
-  (component "passwords-list"
-                 {:render (fn [_ state {:keys [app]}]
-                            (html [:div#list-pwd
-                                   (map (fn [[id _]]
-                                          (placeholder {:id id} {:app app} {:key id :ref id}))
-                                        (sort-by (comp :sort-index second) state))]))
-                  :getInitialState (fn [_ {:keys [app]}]
-                                     (->> (data/get-password-ids-indexes @app)
-                                          (map (fn [[id sort-index]] {id {:sort-index sort-index}}))
-                                          (apply merge)))
-                  :componentDidMount (fn [_ _ {:keys [app]}]
-                                       (listen-passwords-ids-indexes! *component* app)
-                                       (process-sortables app))
-                  :componentWillUnmount (fn [_ state {:keys [app]}]
-                                          (ds/unlisten! app :passwords-ids-indexes)
-                                          (doseq [[id _] state]
-                                            (ds/unlisten! app :passwords-sortable)))
-                  :componentDidUpdate (fn [_ _ old-state new-state {:keys [app]}]
-                                        (let [updated-keys (process-updated-index2
-                                                             (clojure.data/diff old-state new-state))]
-                                          (doseq [key updated-keys]
-                                            (when-not (-> (ds/entity @app key) :state/dragging)
-                                              (let [init-pos (-> (aget (.-refs *component*) key)
-                                                                 (.getDOMNode)
-                                                                 gstyle/getPosition)]
-                                                (data/set-init-pos! app key (-> (g-pos->pos init-pos) :y))
-                                                (data/set-pwd-pos! app key (-> (g-pos->pos init-pos) :y)))))))}))
 
 
 

@@ -1,4 +1,6 @@
 (ns ewen.wreak.sortable
+  "A sortable mixin. Given a list of ewen.wreak.dd-target items, reorder the items when their
+  position change due to a drag action."
   (:require [cljs.core.async :as async]
             [ewen.wreak :refer [*component* mixin replace-state! get-state]]
             [datascript :as ds]
@@ -132,10 +134,10 @@
     (into {} (sort-by (comp :sort-index val) compare* @sort-state))))
 
 (defn remove-ids [state ids]
-  (let [sort-state (atom state)]
+  (let [state (atom state)]
     (doseq [id ids]
-      (swap! sort-state dissoc id))
-    @sort-state))
+      (swap! state dissoc id))
+    @state))
 
 
 
@@ -206,11 +208,8 @@
 
 
 (defn listen-passwords-ids! [react-comp app ids chan-pos chan-sort-index]
-  (let [ ;The map keys are the entities to be sorted ids.
-         sort-state-schema {s/Int {:sort-index (s/maybe s/Int)
-                                   :pos (s/maybe s/Int)}}
-         ;sort-state-no-nil-pos is a "local view" of the sorted entities and is used to recompute
-         ;the sorting order of every entities when they are dragged over. Only the entities with a
+  (let [ ;sort-state is a "local view" of the sorted entities and is used to recompute
+         ;the sorting order of every entities when they are dragged. Only the entities with a
          ;position are considered since the position is used to recompute the sort order.
          sort-state (atom {})
          ;The map keys are the entities to be sorted ids.
@@ -218,7 +217,7 @@
     ;Initialize sort-state and sort-state-no-nil-pos.
     (swap! sort-state sortable-add-ids @app @ids)
     ;For every position update of any entities, report the position update
-    ;back into sort-state and sort-state-no-nil-pos
+    ;back into sort-state
     (go-loop []
              (when-let [report (async/<! chan-pos)]
                (let [updates (pos-callback @ids report)]
@@ -227,7 +226,7 @@
                (recur))
              (async/close! chan-pos))
     ;For every sort-index update of any entities, report the sort-index update
-    ;back into sort-state and sort-state-no-nil-pos
+    ;back into the state of the react component
     (go-loop []
              (when-let [report (async/<! chan-sort-index)]
                (let [updates (index-callback @ids report)]
@@ -262,6 +261,9 @@
       (get -1)))
 
 
+;The mixin must be given a set of ids. Those are the ids of the entities associated with the
+;ewen.wreak.dd-target items to be sorted. The ids must be passed through the "ids" property
+;of the react component.
 (def sortable-mixin
   (mixin
     {:getInitialState      (fn [_ {:keys [app]}]
