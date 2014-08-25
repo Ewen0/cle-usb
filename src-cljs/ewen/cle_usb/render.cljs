@@ -1,4 +1,4 @@
-(ns ewen.cle-usb.render-raw
+(ns ewen.cle-usb.render
   (:require [ewen.cle-usb.data :as data]
             [domina :refer [single-node]]
             [domina.css :refer [sel]]
@@ -15,7 +15,8 @@
             [ewen.wreak :as w :refer [*component* mixin component
                                       replace-state! get-state]]
             [ewen.wreak.sortable :refer [sortable-mixin]]
-            [ewen.wreak.dd-target :refer [dd-target-mixin dd-target-mixin-render]]
+            [ewen.wreak.dd-target :refer [dd-target-mixin dd-target-mixin-render
+                                          get-dragging]]
             [ewen.wreak.dd-handle :refer [dd-handle-mixin]])
   (:require-macros [cljs.core.async.macros :refer [go go-loop]]
                    [cljs.core.match.macros :refer [match]]))
@@ -104,14 +105,15 @@
                                       [:a.new-pwd-link {:href "#"}
                                        "Add new password"]]]]]))
                   :componentDidMount (fn [_ _ {:keys [app]}]
-                                       (listen! (-> (.getDOMNode *component*)
-                                                    (sel ".home-link"))
-                                                (:click event-types)
-                                                #(data/set-view! app :home))
-                                       (listen! (-> (.getDOMNode *component*)
-                                                    (sel ".new-pwd-link"))
-                                                (:click event-types)
-                                                #(data/set-view! app :new-password)))
+                                       (let [view-id (data/get-current-view-id @app)]
+                                         (listen! (-> (.getDOMNode *component*)
+                                                      (sel ".home-link"))
+                                                  (:click event-types)
+                                                  #(data/set-attr! app view-id :view/current :home))
+                                         (listen! (-> (.getDOMNode *component*)
+                                                      (sel ".new-pwd-link"))
+                                                  (:click event-types)
+                                                  #(data/set-attr! app view-id :view/current :new-password))))
                   :componentWillUnmount (fn []
                                           (unlisten! (-> (.getDOMNode *component*)
                                                          (sel ".home-link"))
@@ -177,7 +179,7 @@
 
 
 (defn listen-password-dragging! [app pwd-id callback]
-  (let [index-keys (data/get-index-keys data/get-dragging app pwd-id)]
+  (let [index-keys (ds/get-index-keys get-dragging app pwd-id)]
     (ds/listen! app callback
                 index-keys)))
 
@@ -216,7 +218,7 @@
                                      (when dragging
                                        [:div {:style (clj->js dim)}])])))
                   :getInitialState (fn [{:keys [id]} {:keys [app]}]
-                                     {:dragging (data/get-dragging @app id)})
+                                     {:dragging (get-dragging @app id)})
                   :componentDidMount (fn [{:keys [id]} _ {:keys [app]}]
                                        (let [comp *component*
                                              chan (async/chan)]
@@ -258,7 +260,7 @@
                   :ids                  (atom #{})
                   :componentDidMount   (fn [_ _ {:keys [app]}]
                                           (let [react-comp *component*
-                                                index-keys (data/get-index-keys data/get-list-passwords app)
+                                                index-keys (ds/get-index-keys data/get-list-passwords app)
                                                 ids (data/get-list-passwords @app)
                                                 chan (async/chan)]
                                             (go-loop []
@@ -303,10 +305,9 @@
                                                         :type        "password"
                                                         :value       ""}]]
                                [:div.action-buttons [:input#new-password-button
-                                                       #_(assoc-if false
-                                                               {:type    "button"
+                                                       (cond-> {:type    "button"
                                                                 :value   "Validate"}
-                                                               :disabled "disabled")]]
+                                                               false (assoc :disabled "disabled"))]]
                                [:p#err-msg]]))}))
 
 

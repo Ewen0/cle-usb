@@ -170,6 +170,11 @@ input[type=button]:enabled:active
   background-color:#33b5e5;
 }
 
+#new-password-button
+{
+    margin-top:20px;
+}
+
 
 
 

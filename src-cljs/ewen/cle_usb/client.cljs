@@ -1,293 +1,267 @@
 (ns ewen.cle-usb.client
-  (:require [dom-delegate :as d]
-            [ewen.cle-usb.data :as data]
-            [ewen.cle-usb.sortable :as sortable]
+  (:require [clojure.browser.repl] ;Only for development mode. TODO find a way to make a conditional require
             [cljs.core.async :as async]
-            [ewen.async-plus :as async+]
-            [domina :refer [nodes single-node attr set-style!]]
-            [domina.css :refer [sel]]
-            [goog.string.format]
-            [clojure.string]
+            [ewen.async-plus :as async+ :include-macros true]
             [goog.style :as gstyle]
-            [goog.math]
-            [clojure.data :refer [diff]]
+            [ewen.cle-usb.render :as render]
+            [ewen.cle-usb.data :as data]
             [datascript :as ds])
-  (:require-macros [ewen.async-plus.macros :as async+m]
-                   [cljs.core.async.macros :refer [go go-loop]]))
+  (:require-macros [cljs.core.async.macros :refer [go go-loop]]))
 
 
+(defn init []
+  (enable-console-print!)
+  (js/React.initializeTouchEvents true))
 
-(defn encode-selector [selector]
-  (-> selector
-      str
-      (clojure.string/replace-first ":" "")
-      (clojure.string/replace "." "_DOT_")
-      (clojure.string/replace "/" "_SLASH_")))
 
-(defn decode-selector [selector]
-  (-> selector
-      (clojure.string/replace "_DOT_" ".")
-      (clojure.string/replace "_SLASH_" "/")
-      keyword))
 
 
 
 
 
-(def event-types
-  "A map from keywords to event types. Useful for multiplatform (desktop/mobile) compatibility."
-  (if (js* "'ontouchstart' in window")
-    {:down  "touchstart"
-     :up    "touchend"
-     :move  "touchmove"
-     :over  "touchstart"
-     :out   "touchend"
-     :click "tap"}
-    {:down  "mousedown"
-     :up    "mouseup"
-     :move  "mousemove"
-     :over  "mouseover"
-     :out   "mouseout"
-     :click "mouseclick"}))
+(def app (data/load-app))
 
 
 
+(init)
 
 
 
-;Event delegation
-(defonce delegate (d/Delegate. js/document.body))
 
 
 
 
 
+;client
+#_(client/request-render app)
 
-;Drag and drop
-(defn dd-button-selector [pwd-node]
-  (goog.string.format "#%s .%s" (attr pwd-node "id") "pwd-dragdrop"))
 
-(defn node->app-id [pwd-node]
-  (-> (attr pwd-node "id")
-      decode-selector
-      name
-      js/parseInt))
 
-;TODO Hardcoded namepsace !!
-(defn app-id->node [id]
-   (-> (keyword 'ewen.cle-usb.render id)
-      encode-selector
-      (#(str "#" %))
-      sel
-      single-node))
+;render
+(defn render-view [view]
+  (render/request-render app view))
 
-(defn event->pos [e]
-  (if (.-changedTouches e)
-    {:x (-> e (.-changedTouches)
-            (.item 0)
-            (.-pageX))
-     :y (-> e (.-changedTouches)
-            (.item 0)
-            (.-pageY))}
-    {:x (.-pageX e) :y (.-pageY e)}))
 
-(defn g-pos->pos [g-pos]
-  {:x (.-x g-pos) :y (.-y g-pos)})
 
-(defn pos->g-pos [pos]
-  (goog.math/Coordinate. (:x pos) (:y pos)))
 
-(defn dd-down-callback [app id e]
-  (.preventDefault e)
-  (data/set-dragging! app id true)
-  (data/set-handle-pos! app id (let [init-pos (data/get-init-pos @app id)]
-                                 {:x (- (:x (event->pos e)) (:x init-pos))
-                                  :y (- (:y (event->pos e)) (:y init-pos))})))
-
-(defn dd-up-callback [app id]
-  (data/set-dragging! app id false)
-  (let [pwd-pos-chan (data/get-pwd-pos-chan @app)
-        init-pos (:state/init-pos (ds/entity @app id))]
-    (data/set-pwd-pos! app id init-pos)))
-
-#_(defn merge-pos
-  [pos handle-pos init-pos]
-  {:x (+ (:x init-pos) (- (:x pos) (:x handle-pos)))
-   :y (+ (:y init-pos) (- (:y pos) (:y handle-pos)))})
-
-(defn merge-pos
-  [pos handle-pos init-pos]
-  {:x (- (:x pos) (:x handle-pos))
-   :y (- (:y pos) (:y handle-pos))})
-
-(defn dd-move-callback [app id e]
-  (let [pwd-pos-chan (data/get-pwd-pos-chan @app)]
-    (when (data/get-dragging @app id)
-      (let [init-pos (-> (ds/entity @app id) :state/init-pos)
-            handle-pos (-> (ds/entity @app id) :state/handle-pos)]
-        (data/set-pwd-pos! app id (merge-pos (event->pos e)
-                                             handle-pos
-                                             init-pos))))))
-
-(defn dd [app delegate id node node-handle]
-  (let [init-pos (gstyle/getPosition node)]
-    (data/set-init-pos! app id (g-pos->pos init-pos))
-    (.on delegate (:down event-types)
-         node-handle
-         #(dd-down-callback app id %))
-    (.on delegate (:up event-types)
-         nil
-         #(dd-up-callback app id))
-    (.on delegate (:move event-types)
-         nil
-         #(dd-move-callback app id %))))
-
-
-
-
-
 
 
-;Sortable
 
-(defn changed-passwords? [old-render-data new-render-data]
-  (let [[only-old only-new _] (diff old-render-data new-render-data)
-        id-or-label? (fn [m] (-> (select-keys m [:id :label]) empty? not))]
-    (or (some id-or-label? only-old)
-        (some id-or-label? only-new))))
 
-(defn get-sortable-mult [pwd-pos-chan]
-  (let [nodes (-> (sel ".password") nodes)
-        sortable-map (map (fn [node]
-                            {:id              (node->app-id node)
-                             :pos             (-> node gstyle/getPosition)
-                             :update-pos-mult (->> pwd-pos-chan
-                                                   (async+/filter< #(= (:id %) (node->app-id node)))
-                                                   (async+/map< #(-> (:pos %) pos->g-pos)))})
-                          nodes)]
-    (sortable/sortable-mult sortable-map)))
+(defn maybe-update-pos [pwd-map id pos]
+  (if (= id (:id pwd-map)) (assoc pwd-map :position pos) pwd-map))
 
-(defn assoc-index [vec-of-maps]
-  (reduce
-    (fn [ret m]
-      (conj ret (assoc m :index (+ 1 (or (:index (last ret)) -1)))))
-          [] vec-of-maps))
+;Passwords position
+#_(async+/go-loop [pos-ch (data/get-pwd-pos-chan @app)]
+                 (when-let [{:keys [id pos]} (async/<! pos-ch)]
+                   (let [render-data (data/get-render-data @app)
+                         updated-data (-> (map #(maybe-update-pos % id pos)
+                                               (:data render-data))
+                                          vec)
+                         render-data (assoc render-data :data updated-data)]
+                     (render-view render-data (data/view-load-channel @app)))
+                   (recur pos-ch)))
 
-(defn update-positions [vec-of-maps]
-  (let [positions (->> (map (comp g-pos->pos :pos) vec-of-maps) (sort-by :y))]
-    (map (fn [map pos] (assoc map :pos pos)) vec-of-maps positions)))
 
-
-(defn process-sortable-mult! [app sortable-mult]
-  (async+m/go-loop [sortable-ch (->> sortable-mult async+/unique)]
-                   (when-let [val (async/<! sortable-ch)]
-                     (let [new-positions (assoc-index val)
-                           new-positions (update-positions new-positions)]
-                       (data/set-sort-indexes! app new-positions))
-                     (recur sortable-ch))))
-
-
-#_(defn process-sortable [app]
-  (let [data @app
-        load-view-mult (->> (data/view-load-channel data)
-                            (async+/filter< #(= :home (:view %)))
-                            (async+/map< :data))
-        old-render-data (atom (:data (data/get-render-data data)))
-        pwd-pos-chan (data/get-pwd-pos-chan data)
-        first-sortable-mult (get-sortable-mult pwd-pos-chan)]
-    (process-sortable-mult! app first-sortable-mult)
-    (go-loop [load-view-chan (async/tap load-view-mult (async/chan))
-              sortable-mult nil]
-             (when-let [render-data (async/<! load-view-chan)]
-               (when (changed-passwords? @old-render-data render-data)
-                 (async+/close! (if (nil? sortable-mult) first-sortable-mult sortable-mult))
-                 (let [sortable-mult (get-sortable-mult pwd-pos-chan)]
-                   (process-sortable-mult! app sortable-mult)
-                   (reset! old-render-data render-data)
-                   (recur load-view-chan sortable-mult)))
-               (reset! old-render-data render-data)
-               (recur load-view-chan sortable-mult))
-              (async+/close! load-view-mult))))
-
-
-(defn pos-datom->map [datom]
-  {:id (:e datom) :pos (:v datom)})
-
-(defn get-pwd-pos-chan [app]
-  (let [pwd-pos-chan (async/chan)]
-    (ds/listen! app :password/pos
-                #(let [pos-seq (->> (:tx-data %)
-                                    (filter :added)
-                                    (map pos-datom->map))]
-                  (doseq [pos pos-seq]
-                    (async/put! pwd-pos-chan pos)))
-                (-> (meta data/get-pwd-pos)
-                    :index-keys-fn
-                    (apply [@app])))))
-
-(defn process-sortable [app]
-  (let [data @app
-        load-view-mult (->> (data/view-load-channel data)
-                            (async+/filter< #(= :home (:view %)))
-                            (async+/map< :data))
-        old-render-data (atom (:data (data/get-render-data data)))]))
-
-
-
-
-
-
-
-
-(defn handle-header-events [app menu-events]
-  (.on delegate (:down event-types) ".home-link" #(data/set-view! app :home))
-  (.on delegate (:down event-types) ".new-pwd-link" #(data/set-view! app :new-password)))
-
-
-
-
-
-
-
-
-
-(defmulti render-view (fn [app view] view))
-
-;Init the home view
-(defmethod render-view :home [app view]
-  (let [{:keys [menu-events]} (data/get-channels @app)]
-    (.off delegate)
-    (handle-header-events app menu-events)
-    (let [pwd-nodes (-> (sel ".password") nodes)]
-      ;Init passwords dimensions
-      (dorun (->> pwd-nodes
-                  (map (fn [node] [(node->app-id node)
-                                   (.-width (gstyle/getSize node))
-                                   (.-height (gstyle/getSize node))]))
-                  (map #(apply (partial data/set-pwd-dims! app) %))))
-      ;Set up drag and drop for each password
-      (dorun (map #(dd app delegate %1 %2 %3)
-                  (map node->app-id pwd-nodes)
-                  pwd-nodes
-                  (map dd-button-selector pwd-nodes)))
-      ;Set up sortable for passwords
-      #_(process-sortable app))))
-
-;Init the new-password view
-(defmethod render-view :new-password [app view]
-  (let [{:keys [menu-events]} (data/get-channels @app)]
-    (.off delegate)
-    (handle-header-events app menu-events)))
-
-(defn request-render [app]
-  (let [load-mult (data/view-load-channel @app)
-        change-view-mult (->> load-mult (async+/map< :view) async+/unique)]
-    (async+m/go-loop [change-view-ch change-view-mult]
-                     (when-let [view (async/<! change-view-ch)]
-                       (render-view app view)
-                       (recur change-view-ch)))))
+
+
+
+(defmulti get-render-data (fn [data view] view))
+
+(defmethod get-render-data :home [data view]
+  (->> (data/get-list-passwords data)
+       (map (fn [[id label dragging sort-index]]
+              {:id          id
+               :label       label
+               :placeholder dragging
+               :sort-index  sort-index}))
+       (sort-by :sort-index)
+       vec))
+
+(defmethod get-render-data :new-password [data view]
+  {})
+
+
+
+
+
+
+(let [change-view-callback (fn [tx-report]
+                             (let [view (->> (:tx-data tx-report)
+                                             (filter :added)
+                                             first
+                                             :v)]
+                               (render-view view)))]
+  (ds/listen! app change-view-callback
+              (ds/get-index-keys data/get-current-view app)))
 
 (comment
+  (data/listen-for! app
+                    :state/dragging
+                    ::dragging-listener
+                    #(render-view (data/get-render-data @app)
+                                  (data/view-load-channel @app)))
+
+  (data/listen-for! app
+                    :state/position
+                    ::position-listener
+                    #(render-view (data/get-render-data @app)
+                                  (data/view-load-channel @app)))
+
+
+  (data/listen-for! app
+                    :state/sort-index
+                    ::sort-index-listener
+                    #(render-view (data/get-render-data @app)
+                                  (data/view-load-channel @app))))
+
+
+
+
+(let [view (-> (data/get-current-view @app) data/only)]
+  (render-view view))
+
+
+
+
+
+
+
+
+(comment
+
+  (load-app)
+
+  (let [schema {:aka {:cardinality :many}}
+        conn (ds/create-conn)
+        param "rr"]
+    (ds/transact! conn [{:db/id -1
+                         :name  param
+                         :age   45
+                         :aka   ["Maks Otto von Stirlitz" "Jack Ryan"]}])
+    (ds/q '[:find ?n ?a
+            :where [?e :aka ["Maks Otto von Stirlitz" "Jack Ryan"]]
+            [?e :name ?n]
+            [?e :age ?a]]
+          @conn))
+
+
+
+
+
+
+
+
+  (def ddd (load-app))
+  (get (:tempids (ds/transact! ddd [
+                                     {:db/id          -1
+                                      :password/label "Password5"}
+                                     #_[:db/retract 6 :password/label "Password5"]
+                                     ])) -1)
+
+  (ds/q '[:find ?id
+          :where [?id :password/label _]]
+        @ddd)
+
+
+  (ds/entity @ddd (only #{[7]}))
+
+
+
+
+  (ds/listen! ddd :ll #(.log js/console (str (:tx-data %))))
+  (ds/unlisten! ddd :ll)
+
+
+
+  (ds/q '[:find ?id ?name
+          :where [?id :react/name ?name]]
+        @app)
+
+
+
+
+
+
+
+
+
+
+
+
+  (ds/q2 '[:find ?view
+           :where [_ :view/current ?view]]
+         @app)
+
+  (-> (ds/empty-db) (ds/with [[:db/add 1 :e "e"]]))
+
+  (ds/q2 '[:find ?view
+           :in $ %
+           :where (current ?view)]
+         @app '[[(current ?view) [_ :view/current ?view]]])
+
+  (do (set! datascript/built-ins (assoc datascript/built-ins 'subs subs))
+
+      (ds/q '[:find ?prefix
+              :in [?word ...]
+              :where [(subs ?word 0 5) ?prefix]]
+            ["hello" "antidisestablishmentarianism"]))
+
+  (do (set! datascript/built-ins (assoc datascript/built-ins 'subs subs))
+
+      (ds/q '[:find ?prefix
+              :in [?word ?val]
+              :where [(subs ?word 0 5) ?prefix]]
+            ["hello" "vallllll"]))
+
+
+  (ds/q '[:find ?k ?v :in [[?k ?v] ...] :where [(> ?v 1)]] {:a 1, :b 2, :c 3})
+
+  (ds/q '[:find ?k ?v :in [[[?k ?v ?c]] ...] :where [(> ?v 1)]] [[[:a 1 1]] [[:b 2 2]] [[:c 3 3]]])
+
+  (ds/q '[:find ?heads
+          :with ?monster
+          :in [[?monster ?heads]]]
+        [["Medusa" 1]
+         ["Cyclops" 1]
+         ["Chimera" 1]])
+
+  (ds/bind-in+source (first '{[[[?k ?v ?c]] ...] [[[:a 1 1]] [[:b 2 2]] [[:c 3 3]]]}))
+
+  (ds/bind-in+source (first '{[?v ...] [:a :b :c]}))
+
+  (ds/bind-in+source (first '{[?word ?val] ["hello" "vallllll"]}))
+
+  (ds/bind-in+source (first '{[[?monster ?heads]] [["Medusa" 1] ["Cyclops" 1] ["Chimera" 1]]}))
+
+  (ds/bind-in+source (first '{% [[(current ?view) [_ :view/current ?view]]]}))
+
+
+
+
+
+
+
+
+
+
+
+  (data/get-channels @app)
+
+  (data/get-list-passwords @app)
+
+  (->> (data/get-list-passwords @app)
+       (map (fn [[id label dragging sort-index]]
+              {:id          id
+               :label       label
+               :placeholder dragging
+               :sort-index sort-index}))
+       (sort-by :sort-index)
+       vec)
+
+  (-> (meta data/get-list-passwords) :index-keys-fn (apply [@app]))
+
+  (data/get-current-view @app)
 
   )
 

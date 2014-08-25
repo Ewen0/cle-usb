@@ -26,7 +26,7 @@
             :profiles {:dev {:dependencies [[enlive "1.1.5"]]
                              :plugins [[com.cemerick/austin "0.1.4"]]}}
             :cljsbuild {:builds [{:id "dev"
-                                  :source-paths ["src-cljs" "/home/ewen/clojure/datascript/src"]
+                                  :source-paths ["src-cljs" "src" "/home/ewen/clojure/datascript/src"]
                                   :compiler {
                                               :output-to "resources/public/cljs/cle-usb.js"
                                               :output-dir "resources/public/cljs/"

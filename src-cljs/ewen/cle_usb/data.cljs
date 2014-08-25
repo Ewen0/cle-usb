@@ -1,35 +1,8 @@
 (ns ewen.cle-usb.data
-  (:require [cljs.core.async :as async]
-            [datascript :as ds]
-            [ewen.cle-usb.memoize :refer [memoize]]
-            [clojure.set :refer [union]])
-  (:require-macros [ewen.cle-usb.data :refer [defquery]]))
+  (:require [datascript :as ds])
+  (:require-macros [datascript :refer [defquery]]))
 
 
-
-(defprotocol IndexKeys
-  (get-index-keys
-    [this]
-    [this a]
-    [this a b]
-    [this a b c]
-    [this a b c d]
-    [this a b c d e]
-    [this a b c d e f]
-    [this a b c d e f g]
-    [this a b c d e f g h]
-    [this a b c d e f g h i]
-    [this a b c d e f g h i j]
-    [this a b c d e f g h i j k]
-    [this a b c d e f g h i j k l]
-    [this a b c d e f g h i j k l m]
-    [this a b c d e f g h i j k l m n]
-    [this a b c d e f g h i j k l m n o]
-    [this a b c d e f g h i j k l m n o p]
-    [this a b c d e f g h i j k l m n o p q]
-    [this a b c d e f g h i j k l m n o p q s]
-    [this a b c d e f g h i j k l m n o p q s t]
-    [this a b c d e f g h i j k l m n o p q s t rest]))
 
 
 (defn load-app []
@@ -43,13 +16,7 @@
                          :state/dragging false
                          :state/sort-index 1}
                         {:db/id -3
-                         :view/current :home}
-                        {:db/id -4
-                         :channel/source :page-load
-                         :channel/mult (async/mult (async/chan))}
-                        {:db/id -5
-                         :channel/source :pwd-pos
-                         :channel/mult (async/mult (async/chan))}])
+                         :view/current :home}])
     conn))
 
 
@@ -67,11 +34,6 @@
 
 
 
-(defn analyze->index-keys [{:keys [index-keys calls]}]
-  (let [calls-index-keys (for [[fct & params] calls]
-                           (when (implements? IndexKeys fct)
-                             (apply get-index-keys fct params)))]
-    (apply union (conj calls-index-keys index-keys))))
 
 
 (def maybe (reify
@@ -79,7 +41,7 @@
              (-invoke [this db e attr if-not]
                (let [result (get (ds/entity db e) attr)]
                  (or result if-not)))
-             IndexKeys
+             ds/IndexKeys
              (get-index-keys [this conn e attr if-not]
                (->> (ds/pattern->index-keys [e attr nil nil])
                     (into [conn])
@@ -105,82 +67,19 @@
                             (->> (get-list-passwords* data)
                                 (apply concat)
                                 set))
-                          IndexKeys
+                          ds/IndexKeys
                           (get-index-keys [this conn]
-                            (get-index-keys get-list-passwords* conn))))
-
-
-
-(defquery get-passwords-dragging-metrics
-          [data id] '[:find ?dragging ?width ?height
-                      :in $ ?id ?maybe
-                      :where
-                      [?id :state/dragging ?dragging]
-                      [(?maybe $ ?id :password/width nil) ?width]
-                      [(?maybe $ ?id :password/height nil) ?height]]
-          data id maybe)
-
-(def get-dragging (reify
-                         cljs.core/IFn
-                         (-invoke [this db pwd-id]
-                           (let [dragging (get (ds/entity db pwd-id) :state/dragging)]
-                             (or dragging false)))
-                         IndexKeys
-                         (get-index-keys [this db pwd-id]
-                           (->> (ds/pattern->index-keys [pwd-id :state/dragging nil nil])
-                                (into [db])
-                                (conj #{})))))
-
-(def get-password-pos (reify
-             cljs.core/IFn
-             (-invoke [this db pwd-id]
-               (get (ds/entity db pwd-id) :password/pos))
-             IndexKeys
-             (get-index-keys [this db pwd-id]
-               (->> (ds/pattern->index-keys [pwd-id :password/pos nil nil])
-                    (into [db])
-                    (conj #{})))))
-
-(def get-password-pos (reify
-             cljs.core/IFn
-             (-invoke [this db pwd-id]
-               (get (ds/entity db pwd-id) :password/pos))
-             IndexKeys
-             (get-index-keys [this db pwd-id]
-               (->> (ds/pattern->index-keys [pwd-id :password/pos nil nil])
-                    (into [db])
-                    (conj #{})))))
-
-(defquery get-password-ids-indexes
-          [data] '[:find ?id ?sort-index
-                   :where [?id :password/label _]
-                   [?id :state/sort-index ?sort-index]] data)
-
-(defquery get-password-ids
-          [data] '[:find ?id
-                   :where [?id :password/label _]] data)
-
-(defquery get-password-ids-indexes-pos
-          [data] '[:find ?id ?pos
-                   :where [?id :password/pos ?pos]] data)
-
-(defquery get-password-indexes
-          [data] '[:find ?sort-index
-                   :where [?id :state/sort-index ?sort-index]] data)
+                            (ds/get-index-keys get-list-passwords* conn))))
 
 
 
 
 
 
-(defn get-channels [db]
-  (->> (ds/q '[:find ?source ?mult
-              :where
-              [?id :channel/source ?source]
-              [?id :channel/mult ?mult]
-              [(!= ?source :page-load)]]
-            db)
-       (reduce (fn [m [k v]] (merge m {(keyword k) v})) {})))
+
+
+
+
 
 
 (defquery get-current-view [data]
@@ -194,61 +93,11 @@
             data)
       only))
 
-(defn set-view! [app view]
-  (let [view-id (get-current-view-id @app)]
-    (ds/transact! app [{:db/id        view-id
-                        :view/current view}])))
-
-(defn set-dragging! [app pwd-id dragging]
-  (ds/transact! app [{:db/id        pwd-id
-                      :state/dragging dragging}]))
-
-
-(defn set-handle-pos! [app pwd-id pos]
-  (ds/transact! app [{:db/id        pwd-id
-                      :state/handle-pos pos}]))
-
-(defn get-handle-pos [data pwd-id]
-  (-> (ds/q '[:find ?pos :in $ ?pwd-id
-              :where [?pwd-id :state/handle-pos ?pos]]
-            data pwd-id)
-      only))
-
-(defn set-init-pos! [app pwd-id pos]
-  (ds/transact! app [{:db/id        pwd-id
-                      :state/init-pos pos}]))
-
-(defn get-init-pos [data pwd-id]
-  (-> (ds/entity data pwd-id) :state/init-pos))
 
 
 
-(defn set-pwd-dims! [app pwd-id width height]
-  (ds/transact! app [{:db/id        pwd-id
-                      :password/width width
-                      :password/height height}]))
 
-(defn get-pwd-pos-chan [data]
-  (-> (ds/q '[:find ?mult
-              :where [?id :channel/source :pwd-pos]
-              [?id :channel/mult ?mult]]
-            data)
-      only))
 
-(defquery get-pwd-pos [data]
-          '[:find ?pwd-id ?pos
-            :where [?pwd-id :password/pos ?pos]] data)
-
-(defn set-pwd-pos! [app pwd-id pos]
-  (ds/transact! app [{:db/id        pwd-id
-                      :password/pos pos}]))
-
-(defn set-sort-indexes! [app indexes]
-  (ds/transact! app (-> (map (fn [[id {:keys [sort-index]}]]
-                               {:db/id id
-                                :state/sort-index sort-index})
-                             indexes)
-                        vec)))
 
 (defn set-pwd-label! [app pwd-id label]
   (ds/transact! app [{:db/id        pwd-id

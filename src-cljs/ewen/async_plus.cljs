@@ -2,8 +2,8 @@
   "core.async utilities to ease the use and the composition of core.async mults."
   (:refer-clojure :exclude [merge] :as core)
   (:require [cljs.core.async :as async])
-  (:require-macros [cljs.core.async.macros :refer [go go-loop]]
-                   [ewen.async-plus.macros :as async+m]))
+  (:require-macros [cljs.core.async.macros :as asyncm]
+                   [ewen.async-plus :as async+m]))
 
 
 
@@ -15,10 +15,10 @@
 (defn filter< [pred-ch mult]
   (if (= "function" (js* "typeof ~{}" pred-ch))
     (let [ch (async/chan)]
-      (go (async/>! ch pred-ch))
+      (asyncm/go (async/>! ch pred-ch))
       (filter< ch mult))
     (let [out-ch (async/chan)]
-      (go-loop [in-ch (async/tap mult (async/chan))
+      (asyncm/go-loop [in-ch (async/tap mult (async/chan))
                 filtered-ch (async/filter<
                               #(constantly true)
                               in-ch)]
@@ -41,7 +41,7 @@
                        (js/setTimeout
                          #(async/put! (async/muxch* out-mult) val)
                          delay)
-                       (recur ch)))
+                       #_(recur ch)))
     out-mult))
 
 

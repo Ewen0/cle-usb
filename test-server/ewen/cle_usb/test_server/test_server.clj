@@ -25,7 +25,7 @@
                                    [:script {:src "cljs/goog/deps.js" :type "text/javascript"}]))
                     [:body]
                     (enlive/append
-                      (enlive/html [:script "goog.require('ewen.cle_usb.client_core');"]
+                      (enlive/html [:script "goog.require('ewen.cle_usb.client');"]
                                    [:script "goog.require('clojure.browser.repl');"]
                                    [:script (browser-connected-repl-js)])))
 

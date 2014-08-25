@@ -1,4 +1,4 @@
-(ns ewen.async-plus.macros)
+(ns ewen.async-plus)
 
 (defmacro <! [mult]
   `(let [ch# (cljs.core.async/tap ~mult (cljs.core.async/chan))

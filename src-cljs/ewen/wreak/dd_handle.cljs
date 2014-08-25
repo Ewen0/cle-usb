@@ -3,7 +3,6 @@
             [ewen.wreak :refer [*component* mixin replace-state! get-state]]
             [datascript :as ds]
             [cljs.core.match]
-            [ewen.cle-usb.data :as data]
             [goog.style :as gstyle]
             [domina.events :refer [listen! unlisten!
                                    prevent-default raw-event
@@ -44,7 +43,7 @@
                     (-invoke [this db pwd-id]
                       (let [dragging (get (ds/entity db pwd-id) :state/dragging)]
                         (or dragging false)))
-                    data/IndexKeys
+                    ds/IndexKeys
                     (get-index-keys [this db pwd-id]
                       (->> (ds/pattern->index-keys [pwd-id :state/dragging nil nil])
                            (into [db])
@@ -88,7 +87,7 @@
 
 
 (defn listen-dragging-helper! [app pwd-id callback]
-  (let [index-keys (data/get-index-keys get-dragging app pwd-id)]
+  (let [index-keys (ds/get-index-keys get-dragging app pwd-id)]
     (ds/listen! app callback index-keys)))
 
 (defn listen-dragging! [app id callback]
