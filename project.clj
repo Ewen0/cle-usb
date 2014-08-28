@@ -22,13 +22,13 @@
                            [com.palletops/pallet-repl "0.8.0-beta.2"]
                            [com.palletops/upstart-crate "0.8.0-alpha.2"]
                            [prismatic/schema "0.2.6"]
-                           [org.immutant/web "2.x.incremental.273"]]
+                           [org.immutant/web "2.0.0-alpha1"]
+                           [enlive "1.1.5"]]
             :dev-dependencies [[lein-cljsbuild "1.0.3"]]
-            :repositories [["Immutant 2.x incremental builds"
-                            "http://downloads.immutant.org/incremental/"]]
-            :plugins [[lein-cljsbuild "1.0.3"]]
-            :profiles {:dev {:dependencies [[enlive "1.1.5"]]
-                             :plugins [[com.cemerick/austin "0.1.4"]]}}
+            :plugins [[lein-cljsbuild "1.0.3"]
+                      [lein-immutant "2.0.0-alpha1"]]
+            :profiles {:dev {:plugins [[com.cemerick/austin "0.1.4"]]}
+                       :uberjar {:aot :all}}
             :cljsbuild {:builds [{:id "dev"
                                   :source-paths ["src-cljs" "src" "/home/ewen/clojure/datascript/src"]
                                   :compiler {
@@ -38,4 +38,4 @@
                                               :source-map true
                                               :libs ["resources/public/js/dom-delegate.js"]}}]}
             :jvm-opts ["-Xss1G"]                                         ;Avoid stackoverflow when compiling clojurescript (for example, large go-loop macros)
-            )
+            :main ewen.cle-usb.server)
