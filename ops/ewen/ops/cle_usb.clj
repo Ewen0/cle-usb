@@ -14,6 +14,7 @@
             [pallet.config-file.format :refer [name-values]]
             [pallet.crate.upstart :as upstart]
             [pallet.crate.service :as service]
+            [pallet.crate.java :as java]
 
             [pallet.configure]
             [pallet.template]))
@@ -127,7 +128,10 @@
 (def cle-usb-group
   (group-spec
     "cle-usb"
-    :extends [(upstart/server-spec {}) with-ewen with-config-ssh with-ufw]))
+    :extends [(upstart/server-spec {}) with-ewen with-config-ssh with-ufw
+              (java/server-spec {:vendor :oracle
+                                 :components :jre
+                                 :version [7]})]))
 
 (defn execute
   [phase]
@@ -138,6 +142,12 @@
     :timeout-ms 50000))
 
 (comment
+  (with-admin-user
+    (make-user "root"
+               :private-key-path "~/.ssh/ewen-server"
+               :public-key-path "~/.ssh/ewen-server.pub")
+    (def s (execute)))
+
   (with-admin-user
     (make-user "root"
                :private-key-path "~/.ssh/ewen-server"
@@ -160,6 +170,6 @@
     (make-user "ewen"
                :private-key-path "~/.ssh/ewen-server"
                :public-key-path "~/.ssh/ewen-server.pub")
-    (def s (execute :init4)))
+    (def s (execute :install)))
   )
 

@@ -21,6 +21,7 @@
                            [com.palletops/pallet "0.8.0-RC.9"]
                            [com.palletops/pallet-repl "0.8.0-beta.2"]
                            [com.palletops/upstart-crate "0.8.0-alpha.2"]
+                           [com.palletops/java-crate "0.8.0-beta.6"]
                            [prismatic/schema "0.2.6"]
                            [org.immutant/web "2.0.0-alpha1"]
                            [enlive "1.1.5"]]
