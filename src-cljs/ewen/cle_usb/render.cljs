@@ -289,26 +289,79 @@
 
 
 
+(defn set-new-pwd-callback! [app callback]
+  (-> (ds/transact! app [{:db/id -1
+                          :new-password/callback callback}])
+      :tempids
+      (get -1)))
+
+(defn enable-button? [db id]
+  (let [new-label (-> (ds/entity db id)
+                      :new-password/label)
+        labels (data/get-password-labels db)]
+    (and
+      new-label
+      (not= new-label "")
+      (not (some #(= new-label %) labels)))))
+
+
 (def new-password
   (component "new-password"
-             {:render (fn []
-                        (html [:div
-                               [:div#password-label-wrapper.section
-                                [:div.section-header [:h2 "Password label"]]
-                                [:input#password-label {:placeholder "Password label"
-                                                        :type        "text"
-                                                        :value       ""}]]
-                               [:div#password-value-wrapper.section
-                                [:div.section-header
-                                 [:h2 "Password value"]]
-                                [:input#password-value {:placeholder "Password value"
-                                                        :type        "password"
-                                                        :value       ""}]]
-                               [:div.action-buttons [:input#new-password-button
-                                                       (cond-> {:type    "button"
-                                                                :value   "Validate"}
-                                                               false (assoc :disabled "disabled"))]]
-                               [:p#err-msg]]))}))
+             {:render (fn [_ {:keys [label value enabled] :as state} {:keys [app]}]
+                        (let [comp *component*]
+                          (html [:div
+                                 [:div#password-label-wrapper.section
+                                  [:div.section-header [:h2 "Password label"]]
+                                  [:input#password-label {:placeholder "Password label"
+                                                          :type        "text"
+                                                          :value       label
+                                                          :onChange    #(when-let [id (aget comp ::new-pwd-callback-id)]
+                                                                         (data/set-attr! app id :new-password/label
+                                                                                         (.. % -target -value)))}]]
+                                 [:div#password-value-wrapper.section
+                                  [:div.section-header
+                                   [:h2 "Password value"]]
+                                  [:input#password-value {:placeholder "Password value"
+                                                          :type        "password"
+                                                          :value       value
+                                                          :onChange    #(when-let [id (aget comp ::new-pwd-callback-id)]
+                                                                         (data/set-attr! app id :new-password/value
+                                                                                         (.. % -target -value)))}]]
+                                 [:div.action-buttons [:input#new-password-button
+                                                       (cond-> {:type  "button"
+                                                                :value "Validate"}
+                                                               (not enabled) (assoc :disabled "disabled"))]]
+                                 [:p#err-msg]])))
+              :getInitialState (fn [_ {:keys [app]}]
+                                 {:label ""
+                                  :value ""
+                                  :enabled false})
+              :componentDidMount (fn [_ _ {:keys [app]}]
+                                   (let [comp *component*
+                                         callback (fn [{:keys [tx-data]}]
+                                                    (let [id (aget comp ::new-pwd-callback-id)
+                                                          data @app
+                                                          entity (ds/entity data id)]
+                                                      (replace-state! comp {:label (:new-password/label entity)
+                                                                            :value (:new-password/value entity)
+                                                                            :enabled (:new-password/button-enabled entity)})
+                                                      (data/set-attr! app id :new-password/button-enabled (enable-button? data id))))
+                                         callback-id (set-new-pwd-callback! app callback)
+                                         index-keys (clojure.set/union
+                                                      (ds/get-index-keys data/get-new-pwd-label app callback-id)
+                                                      (ds/get-index-keys data/get-new-pwd-value app callback-id)
+                                                      (ds/get-index-keys data/get-new-pwd-button-enabled app callback-id))]
+                                     (->> callback-id
+                                          (aset *component* ::new-pwd-callback-id))
+                                     (ds/listen! app
+                                                 callback
+                                                 index-keys)))
+              :componentWillUnmount (fn [_ _ {:keys [app]}]
+                                      (ds/unlisten! app (->> (aget *component* ::new-pwd-callback-id)
+                                                             (ds/entity @app)
+                                                             :new-password/callback))
+                                      (ds/transact! app [[:db.fn/retractEntity
+                                                          (aget *component* ::new-pwd-callback-id)]]))}))
 
 
 
@@ -327,28 +380,95 @@
 (defmethod render-app :new-password [app view]
            (w/render (header nil {:app app})
                      (-> (sel "#header") single-node))
-           (w/render (new-password)
+           (w/render (new-password nil {:app app})
                      (-> (sel "#app") single-node)))
 
 
+(comment
+  ;; Here we use an atom to know if we already have a render queued
+  ;; up. In such a case, requesting another render is a no-op
+  (let [render-pending? (atom false)
+        render-queued? (atom false)]
+    (defn request-render
+      "Render the given application state tree."
+      [app view]
+      (if (compare-and-set! render-pending? false true)
+        (js/requestAnimationFrame (fn []
+                                    (render-app app view)
+                                    (while @render-queued?
+                                      (let [view @render-queued?]
+                                        (render-app app view)
+                                        (reset! render-queued? false)))
+                                    (reset! render-pending? false)))
+        (reset! render-queued? view)))))
 
-;; Here we use an atom to tell us if we already have a render queued
-;; up; if so, requesting another render is a no-op
-(let [render-pending? (atom false)
-      render-queued? (atom false)]
-     (defn request-render
-           "Render the given application state tree."
-           [app view]
-           (if (compare-and-set! render-pending? false true)
-             (.requestAnimationFrame js/window
-                                     (fn []
-                                         (render-app app view)
-                                         (while @render-queued?
-                                                (let [view @render-queued?]
-                                                     (render-app app view)
-                                                     (reset! render-queued? false)))
-                                         (reset! render-pending? false)))
-             (reset! render-queued? view))))
+
+
+(defn stop-render [render-state]
+  (match render-state
+         {:state :pending
+          :view  _
+          :app   _} {:state :waiting
+                     :view  nil
+                     :app   nil}
+         {:state :queued
+          :view  v
+          :app   app} {:state :pending
+                       :view  v
+                       :app   app}))
+
+(defn start-render [render-state app new-view]
+  (match render-state
+         {:state :waiting
+          :view  nil
+          :app   nil} {:state :pending
+                       :view  new-view
+                       :app   app}
+         {:state :pending
+          :view  _
+          :app   _} {:state :queued
+                     :view  new-view
+                     :app   app}
+         {:state :queued
+          :view  _
+          :app   _} {:state :queued
+                     :view  new-view
+                     :app   app}))
+
+(let [render-state (atom {:state :waiting
+                          :view  nil
+                          :app nil})
+      render-fn (if js/requestAnimationFrame
+                  (fn [app view]
+                    (js/requestAnimationFrame
+                      (fn []
+                        (render-app app view)
+                        (swap! render-state stop-render))))
+                  (fn [app view]
+                    (render-app app view)
+                    (js/setTimeout (fn [] (swap! render-state stop-render)) 16)))]
+
+  (add-watch render-state :render-state-updates
+             (fn [_ _ o n]
+               (match [o n]
+                      [{:state :waiting
+                        :view  _
+                        :app   _}
+                       {:state :pending
+                        :view  v
+                        :app   app}] (render-fn app v)
+                      [{:state :queued
+                        :view  _
+                        :app   _}
+                       {:state :pending
+                        :view  v
+                        :app   app}] (render-fn app v)
+                      :else nil)))
+
+  (defn request-render
+    "Render the given application state tree."
+    [app view]
+    (swap! render-state start-render app view)))
 
 
 

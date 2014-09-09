@@ -71,6 +71,13 @@
                           (get-index-keys [this conn]
                             (ds/get-index-keys get-list-passwords* conn))))
 
+(defn get-password-labels [data]
+  (->> (ds/q '[:find ?label
+               :where [_ :password/label ?label]]
+             data)
+       (map first)
+       set))
+
 
 
 
@@ -165,6 +172,43 @@
 (defn rem-password! [app id]
   (ds/transact! app [[:db.fn/retractEntity id]
                      [:db.fn/call update-sort-indexes-rem id]]))
+
+
+;New password
+
+
+(def get-new-pwd-label (reify
+                         cljs.core/IFn
+                         (-invoke [this db id]
+                           (let [label (get (ds/entity db id) :new-password/label)]
+                             (or label "")))
+                         ds/IndexKeys
+                         (get-index-keys [this db id]
+                           (->> (ds/pattern->index-keys [id :new-password/label nil nil])
+                                (into [db])
+                                (conj #{})))))
+
+(def get-new-pwd-value (reify
+                         cljs.core/IFn
+                         (-invoke [this db id]
+                           (let [label (get (ds/entity db id) :new-password/value)]
+                             (or label "")))
+                         ds/IndexKeys
+                         (get-index-keys [this db id]
+                           (->> (ds/pattern->index-keys [id :new-password/value nil nil])
+                                (into [db])
+                                (conj #{})))))
+
+(def get-new-pwd-button-enabled (reify
+                                  cljs.core/IFn
+                                  (-invoke [this db id]
+                                    (let [label (get (ds/entity db id) :new-password/button-enabled)]
+                                      (or label false)))
+                                  ds/IndexKeys
+                                  (get-index-keys [this db id]
+                                    (->> (ds/pattern->index-keys [id :new-password/button-enabled nil nil])
+                                         (into [db])
+                                         (conj #{})))))
 
 
 
