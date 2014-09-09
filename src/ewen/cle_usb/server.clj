@@ -6,8 +6,15 @@
             [ring.util.response :as ring-resp]
             [immutant.web :as web]
             [net.cgrand.enlive-html :as enlive]
+            [cemerick.austin.repls :refer [browser-connected-repl-js]]
+            [ewen.cle-usb.env :as env]
 
             [ring.middleware.resource]))
+
+(when (-> (env) :enable-browser-repl)
+  (def repl-env (reset! cemerick.austin.repls/browser-repl-env
+                        (cemerick.austin/repl-env))))
+
 
 (enlive/deftemplate main-tml "public/cle-usb.html" []
                     [[:script (enlive/attr= :src "cljs/cle-usb.js")]]
@@ -16,7 +23,9 @@
                                    [:script {:src "cljs/goog/deps.js" :type "text/javascript"}]))
                     [:body]
                     (enlive/append
-                      (enlive/html [:script "goog.require('ewen.cle_usb.client');"])))
+                      (enlive/html [:script "goog.require('ewen.cle_usb.client');"]
+                                   [:script "goog.require('clojure.browser.repl');"]
+                                   [:script (browser-connected-repl-js)])))
 
 (defn test-page
   [request]
