@@ -3,7 +3,7 @@
             :license {:name "Eclipse Public License"
                       :url "http://www.eclipse.org/legal/epl-v10.html"}
             :min-lein-version "2.0.0"
-            :source-paths ["src" "src-cljs" "ops" "/home/ewen/clojure/datascript/src"]
+            :source-paths ["src" "src-cljs"]
             :test-paths ["test" "test-server"]
             :resource-paths ["resources/main"]
             :dependencies [[org.clojure/clojure "1.6.0"]
@@ -29,15 +29,26 @@
                            [org.clojure/data.zip "0.1.1"]]
             :dev-dependencies [[lein-cljsbuild "1.0.3"]]
             :plugins [[lein-immutant "2.0.0-alpha1"]
-                      [com.cemerick/austin "0.1.5"]]
+                      [com.cemerick/austin "0.1.5"]
+                      [lein-pprint "1.1.1"]]
             :profiles {:dev {:plugins [[lein-cljsbuild "1.0.3"]]
+                             :source-paths ["ops" "/home/ewen/clojure/datascript/src"]
                              :resource-paths ["resources/dev"]}
-                       :uberjar {:aot :all}}
+                       :uberjar {:resource-paths ["resources/prod"]
+                                  :aot :all}}
             :cljsbuild {:builds [{:id "dev"
                                   :source-paths ["src-cljs" "src" "/home/ewen/clojure/datascript/src"]
                                   :compiler {
                                               :output-to "resources/dev/public/cljs/cle-usb.js"
                                               :output-dir "resources/dev/public/cljs/"
+                                              :optimizations :none
+                                              :source-map true
+                                              :libs ["resources/main/public/js/dom-delegate.js"]}}
+                                 {:id "prod"
+                                  :source-paths ["src-cljs" "src" "/home/ewen/clojure/datascript/src"]
+                                  :compiler {
+                                              :output-to "resources/prod/public/cljs/cle-usb.js"
+                                              :output-dir "resources/prod/public/cljs/"
                                               :optimizations :none
                                               :source-map true
                                               :libs ["resources/main/public/js/dom-delegate.js"]}}]}

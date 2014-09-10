@@ -241,5 +241,19 @@ xml/parse
                :private-key-path "~/.ssh/ewen-server"
                :public-key-path "~/.ssh/ewen-server.pub")
     (def s (execute :init4)))
-  )
+
+
+
+
+  "This is not a bug, edit modules/sun/jdk/main/module.xml and add a path to paths."
+
+"<path name=\"com/sun/net/httpserver\"/>"
+
+
+
+
+"<host name=\"default-host\" alias=\"localhost\" default-web-module=\"name-of-your.war\" />"
+
+
+)
 
