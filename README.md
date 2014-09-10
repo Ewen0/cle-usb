@@ -18,7 +18,7 @@ Limitations
 Status
 ======
 
-The application is currently under development. Only the README and a [first version of the GUI](https://github.com/Ewen0/cle-usb-cljs) is available on github right now.
+The application is currently under development. The GUI is continuously deployed [here](http://www.cle-usb.pw).
 
 References
 ----------
