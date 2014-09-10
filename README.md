@@ -18,7 +18,7 @@ Limitations
 Status
 ======
 
-The application is currently under development. The GUI is continuously deployed [here](http://www.cle-usb.pw).
+The application is currently under development. The GUI is regularly deployed [here](http://www.cle-usb.pw).
 
 References
 ----------
