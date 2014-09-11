@@ -9,11 +9,16 @@
             [cemerick.austin.repls :refer [browser-connected-repl-js]]
             [ewen.cle-usb.env :as env]
 
-            [ring.middleware.resource]))
+            [ring.middleware.resource])
+  (:gen-class))
 
-(when (-> (env) :enable-browser-repl)
+(when (:enable-browser-repl (env/env))
   (def repl-env (reset! cemerick.austin.repls/browser-repl-env
                         (cemerick.austin/repl-env))))
+
+(defn browser-connected-repl-html []
+  [:script "goog.require('clojure.browser.repl');"]
+  [:script (browser-connected-repl-js)])
 
 
 (enlive/deftemplate main-tml "public/cle-usb.html" []
@@ -24,8 +29,7 @@
                     [:body]
                     (enlive/append
                       (enlive/html [:script "goog.require('ewen.cle_usb.client');"]
-                                   [:script "goog.require('clojure.browser.repl');"]
-                                   [:script (browser-connected-repl-js)])))
+                                   (when (:enable-browser-repl (env/env)) (browser-connected-repl-html)))))
 
 (defn test-page
   [request]

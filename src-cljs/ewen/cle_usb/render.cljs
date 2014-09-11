@@ -277,7 +277,8 @@
                                                                   :v     _
                                                                   :added false}]
                                                                 (swap! (.-ids react-comp) disj pwd-id)
-                                                                :else nil)))
+                                                                :else nil))
+                                                       (recur))
                                                      (async/close! chan))
                                             (data/set-pwd-list-chan! app chan)
                                             (ds/listen! app chan index-keys)
@@ -304,6 +305,10 @@
       (not= new-label "")
       (not (some #(= new-label %) labels)))))
 
+
+(defn add-password! [app label]
+  (data/add-password! app label)
+  (data/set-current-view! app :home))
 
 (def new-password
   (component "new-password"
@@ -355,13 +360,21 @@
                                           (aset *component* ::new-pwd-callback-id))
                                      (ds/listen! app
                                                  callback
-                                                 index-keys)))
+                                                 index-keys))
+                                   (let [comp *component*]
+                                     (listen! (-> (.getDOMNode comp)
+                                                  (sel "#new-password-button"))
+                                              (:click event-types)
+                                              #(add-password! app (-> (get-state comp) :label)))))
               :componentWillUnmount (fn [_ _ {:keys [app]}]
                                       (ds/unlisten! app (->> (aget *component* ::new-pwd-callback-id)
                                                              (ds/entity @app)
                                                              :new-password/callback))
                                       (ds/transact! app [[:db.fn/retractEntity
-                                                          (aget *component* ::new-pwd-callback-id)]]))}))
+                                                          (aget *component* ::new-pwd-callback-id)]])
+                                      (unlisten! (-> (.getDOMNode *component*)
+                                                     (sel ".new-password-button"))
+                                                 (:click event-types)))}))
 
 
 

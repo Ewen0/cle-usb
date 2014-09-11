@@ -87,6 +87,9 @@
 
 
 
+(defn set-attr! [app id attr val]
+  (ds/transact! app [{:db/id id
+                      attr val}]))
 
 
 (defquery get-current-view [data]
@@ -99,6 +102,12 @@
               :where [?id :view/current]]
             data)
       only))
+
+(defn set-current-view! [app new-view]
+  (let [view-id (get-current-view-id @app)]
+    (set-attr! app view-id :view/current new-view)))
+
+
 
 
 
@@ -126,9 +135,6 @@
   (ds/transact! app [{:db/id -1
                       :passwords-list/chan chan}]))
 
-(defn set-attr! [app id attr val]
-  (ds/transact! app [{:db/id id
-                      attr val}]))
 
 (defn retract-pwd-list-chan! [app]
   (let [id (get-pwd-list-id @app)]
@@ -159,11 +165,26 @@
            {:db/id            id
             :state/sort-index (inc-or-dec index)}))))
 
-(defn add-password! [app label index]
-  (ds/transact! app [{:db/id          -1
-                      :password/label label
-                      :state/sort-index index}
-                     [:db.fn/call update-sort-indexes-from index inc]]))
+(defn last-index [db]
+  (-> (ds/q '[:find (max ?index)
+              :where [_ :state/sort-index ?index]]
+            db)
+      only))
+
+(defn append-password-last-position [db label]
+  (let [index (+ 1 (last-index db))]
+    [{:db/id -1
+      :password/label label
+      :state/sort-index index}]))
+
+(defn add-password!
+  ([app label]
+   (ds/transact! app [[:db.fn/call append-password-last-position label]]))
+  ([app label index]
+   (ds/transact! app [{:db/id            -1
+                       :password/label   label
+                       :state/sort-index index}
+                      [:db.fn/call update-sort-indexes-from index inc]])))
 
 (defn update-sort-indexes-rem [db id]
   (let [from (-> (ds/entity db id) :state/sort-index)]

@@ -26,31 +26,30 @@
                            [org.immutant/web "2.0.0-alpha1"]
                            [enlive "1.1.5"]
                            [org.clojure/data.xml "0.0.8"]
-                           [org.clojure/data.zip "0.1.1"]]
+                           [org.clojure/data.zip "0.1.1"]
+                           [ewen/wreak "0.1.0"]]
             :dev-dependencies [[lein-cljsbuild "1.0.3"]]
             :plugins [[lein-immutant "2.0.0-alpha1"]
                       [com.cemerick/austin "0.1.5"]
                       [lein-pprint "1.1.1"]]
             :profiles {:dev {:plugins [[lein-cljsbuild "1.0.3"]]
-                             :source-paths ["ops" "/home/ewen/clojure/datascript/src"]
+                             :source-paths ["ops"]
                              :resource-paths ["resources/dev"]}
                        :uberjar {:resource-paths ["resources/prod"]
                                   :aot :all}}
             :cljsbuild {:builds [{:id "dev"
-                                  :source-paths ["src-cljs" "src" "/home/ewen/clojure/datascript/src"]
+                                  :source-paths ["src-cljs" "/home/ewen/clojure/datascript/src"]
                                   :compiler {
                                               :output-to "resources/dev/public/cljs/cle-usb.js"
                                               :output-dir "resources/dev/public/cljs/"
                                               :optimizations :none
-                                              :source-map true
-                                              :libs ["resources/main/public/js/dom-delegate.js"]}}
+                                              :source-map true}}
                                  {:id "prod"
-                                  :source-paths ["src-cljs" "src" "/home/ewen/clojure/datascript/src"]
+                                  :source-paths ["src-cljs" "/home/ewen/clojure/datascript/src"]
                                   :compiler {
-                                              :output-to "resources/prod/public/cljs/cle-usb.js"
+                                              :output-to "resources/prod/public/cljs/cle-usb.min.js"
                                               :output-dir "resources/prod/public/cljs/"
                                               :optimizations :none
-                                              :source-map true
-                                              :libs ["resources/main/public/js/dom-delegate.js"]}}]}
+                                              :source-map true}}]}
             :jvm-opts ["-Xss1G"]                                         ;Avoid stackoverflow when compiling clojurescript (for example, large go-loop macros)
             :main ewen.cle-usb.server)
