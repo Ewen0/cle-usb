@@ -29,97 +29,25 @@
 
 
 
-
-
-
-;client
-#_(client/request-render app)
-
-
-
 ;render
-(defn render-view [view]
-  (render/request-render app view))
+(defn render-view [db conn view]
+  #_(render/request-render db conn view)
+  (render/render {:conn conn :db db}))
+
+
+
+(let [index-keys (ds/get-index-keys data/get-current-view app)
+      callback (fn [tx-report]
+                 (let [view (data/get-current-view (:db-after tx-report))]
+                   (render-view (:db-after tx-report) app view)))]
+  (ds/listen! app callback index-keys))
 
 
 
 
-
-
-
-
-(defn maybe-update-pos [pwd-map id pos]
-  (if (= id (:id pwd-map)) (assoc pwd-map :position pos) pwd-map))
-
-;Passwords position
-#_(async+/go-loop [pos-ch (data/get-pwd-pos-chan @app)]
-                 (when-let [{:keys [id pos]} (async/<! pos-ch)]
-                   (let [render-data (data/get-render-data @app)
-                         updated-data (-> (map #(maybe-update-pos % id pos)
-                                               (:data render-data))
-                                          vec)
-                         render-data (assoc render-data :data updated-data)]
-                     (render-view render-data (data/view-load-channel @app)))
-                   (recur pos-ch)))
-
-
-
-
-
-(defmulti get-render-data (fn [data view] view))
-
-(defmethod get-render-data :home [data view]
-  (->> (data/get-list-passwords data)
-       (map (fn [[id label dragging sort-index]]
-              {:id          id
-               :label       label
-               :placeholder dragging
-               :sort-index  sort-index}))
-       (sort-by :sort-index)
-       vec))
-
-(defmethod get-render-data :new-password [data view]
-  {})
-
-
-
-
-
-
-(let [change-view-callback (fn [tx-report]
-                             (let [view (->> (:tx-data tx-report)
-                                             (filter :added)
-                                             first
-                                             :v)]
-                               (render-view view)))]
-  (ds/listen! app change-view-callback
-              (ds/get-index-keys data/get-current-view app)))
-
-(comment
-  (data/listen-for! app
-                    :state/dragging
-                    ::dragging-listener
-                    #(render-view (data/get-render-data @app)
-                                  (data/view-load-channel @app)))
-
-  (data/listen-for! app
-                    :state/position
-                    ::position-listener
-                    #(render-view (data/get-render-data @app)
-                                  (data/view-load-channel @app)))
-
-
-  (data/listen-for! app
-                    :state/sort-index
-                    ::sort-index-listener
-                    #(render-view (data/get-render-data @app)
-                                  (data/view-load-channel @app))))
-
-
-
-
-(let [view (-> (data/get-current-view @app) data/only)]
-  (render-view view))
+(let [db @app]
+  (let [view (data/get-current-view db)]
+    (render-view db app view)))
 
 
 

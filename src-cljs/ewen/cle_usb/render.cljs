@@ -248,44 +248,36 @@
 
 
 
-(def passwords-list
-  (component "passwords-list"
-                 {:render               (fn [_ state {:keys [app]}]
-                                          (let [state (:ewen.wreak.sortable/sortable-state state)]
-                                            (html [:div#list-pwd
-                                                   (map (fn [[id _]]
-                                                          (placeholder {:id id} {:app app} {:key id :ref id}))
-                                                        state)])))
-                  :mixins               #js [sortable-mixin]
-                  :ids                  (atom #{})
-                  :componentDidMount   (fn [_ _ {:keys [app]}]
-                                          (let [react-comp *component*
-                                                index-keys (ds/get-index-keys data/get-list-passwords app)
-                                                ids (data/get-list-passwords @app)
-                                                chan (async/chan)]
-                                            (go-loop []
-                                                     (when-let [{:keys [tx-data]} (async/<! chan)]
-                                                       (doseq [datom tx-data]
-                                                         (match [datom]
-                                                                [{:e     pwd-id
-                                                                  :a     :password/label
-                                                                  :v     _
-                                                                  :added true}]
-                                                                (swap! (.-ids react-comp) conj pwd-id)
-                                                                [{:e     pwd-id
-                                                                  :a     :password/label
-                                                                  :v     _
-                                                                  :added false}]
-                                                                (swap! (.-ids react-comp) disj pwd-id)
-                                                                :else nil))
-                                                       (recur))
-                                                     (async/close! chan))
-                                            (data/set-pwd-list-chan! app chan)
-                                            (ds/listen! app chan index-keys)
-                                            (reset! (.-ids *component*) (set ids))))
-                  :componentWillUnmount (fn [_ _ {:keys [app]}]
-                                          (ds/unlisten! app (data/get-pwd-list-chan @app))
-                                          (data/retract-pwd-list-chan! app))}))
+(let [update-comp (fn [comp db]
+                    (let [ids (data/get-list-passwords db)]
+                      (reset! (.-ids comp) ids)))]
+  (def passwords-list
+    (component "passwords-list"
+               {:render                    (fn [{:keys [db conn]} state _]
+                                             (let [state (:ewen.wreak.sortable/sortable-state state)]
+                                               (html [:div#list-pwd
+                                                      (map (fn [[id _]]
+                                                             (placeholder {:id id :db db} {:app conn} {:key id :ref id}))
+                                                           state)])))
+                :mixins                    #js [sortable-mixin]
+                :ids                       (atom #{})
+                :componentDidMount         (fn [{:keys [db conn]} _ _]
+                                             (update-comp *component* db)
+                                             (let [index-keys (ds/get-index-keys data/get-list-passwords conn)
+                                                   comp *component*
+                                                   chan (async/chan)]
+                                               (go-loop []
+                                                        (when-let [{:keys [db-after]} (async/<! chan)]
+                                                          (update-comp comp db-after)
+                                                          (recur))
+                                                        (async/close! chan))
+                                               (data/set-pwd-list-chan! conn chan)
+                                               (ds/listen! conn chan index-keys)))
+                :componentWillUnmount (fn [{:keys [conn]} _ _]
+                                        (ds/unlisten! conn (data/get-pwd-list-chan @conn))
+                                        (data/retract-pwd-list-chan! conn))
+                :componentWillReceiveProps (fn [{:keys [db]} _ _ _]
+                                             (update-comp *component* db))})))
 
 
 
@@ -379,22 +371,41 @@
 
 
 
+(let [current-view (atom nil)]
+  (defn render [{:keys [conn db tx-data index-keys]}]
+    (when (or (nil? tx-data)
+              (nil? index-keys)
+              (not (nil? (clojure.set/intersection index-keys (ds/get-index-keys data/get-current-view conn)))))
+      (reset! current-view (data/get-current-view db)))
+    (when (nil? @current-view)
+      (reset! current-view (data/get-current-view db)))
+    (case @current-view
+      :home (do
+              (w/render (header nil {:app conn})
+                             (-> (sel "#header") single-node))
+              (w/render (passwords-list {:db db :conn conn})
+                        (-> (sel "#app") single-node)))
+      :new-password (do
+                      (w/render (header nil {:app conn})
+                                (-> (sel "#header") single-node))
+                      (w/render (new-password nil {:app conn})
+                                (-> (sel "#app") single-node))))))
 
 
 ;Rendering functions for each pages
-(defmulti render-app (fn [app view] view))
+(defmulti render-app (fn [db conn view] view))
 
-(defmethod render-app :home [app view]
-           (w/render (header nil {:app app})
-                     (-> (sel "#header") single-node))
-           (w/render (passwords-list nil {:app app})
-                     (-> (sel "#app") single-node)))
+(defmethod render-app :home [db conn view]
+  (w/render (header nil {:app conn})
+            (-> (sel "#header") single-node))
+  (w/render (passwords-list {:db db :conn conn})
+            (-> (sel "#app") single-node)))
 
-(defmethod render-app :new-password [app view]
-           (w/render (header nil {:app app})
-                     (-> (sel "#header") single-node))
-           (w/render (new-password nil {:app app})
-                     (-> (sel "#app") single-node)))
+(defmethod render-app :new-password [db conn view]
+  (w/render (header nil {:app conn})
+            (-> (sel "#header") single-node))
+  (w/render (new-password nil {:app conn})
+            (-> (sel "#app") single-node)))
 
 
 (comment
@@ -404,13 +415,13 @@
         render-queued? (atom false)]
     (defn request-render
       "Render the given application state tree."
-      [app view]
+      [db conn view]
       (if (compare-and-set! render-pending? false true)
         (js/requestAnimationFrame (fn []
-                                    (render-app app view)
+                                    (render-app db conn view)
                                     (while @render-queued?
                                       (let [view @render-queued?]
-                                        (render-app app view)
+                                        (render-app db conn view)
                                         (reset! render-queued? false)))
                                     (reset! render-pending? false)))
         (reset! render-queued? view)))))
@@ -421,44 +432,55 @@
   (match render-state
          {:state :pending
           :view  _
-          :app   _} {:state :waiting
+          :db   _
+          :conn _} {:state :waiting
                      :view  nil
-                     :app   nil}
+                     :db   nil
+                     :conn nil}
          {:state :queued
           :view  v
-          :app   app} {:state :pending
+          :db   db
+          :conn conn} {:state :pending
                        :view  v
-                       :app   app}))
+                       :db db
+                       :conn conn}))
 
-(defn start-render [render-state app new-view]
+(defn start-render [render-state db conn new-view]
   (match render-state
          {:state :waiting
           :view  nil
-          :app   nil} {:state :pending
+          :db   nil
+          :conn nil} {:state :pending
                        :view  new-view
-                       :app   app}
+                       :db   db
+                       :conn conn}
          {:state :pending
           :view  _
-          :app   _} {:state :queued
+          :db   _
+          :conn _} {:state :queued
                      :view  new-view
-                     :app   app}
+                     :db   db
+                     :conn conn}
          {:state :queued
           :view  _
-          :app   _} {:state :queued
+          :db   _
+          :conn _} {:state :queued
                      :view  new-view
-                     :app   app}))
+                     :db db
+                     :conn conn}))
 
 (let [render-state (atom {:state :waiting
                           :view  nil
-                          :app nil})
+                          :db nil
+                          :conn nil})
       render-fn (if js/requestAnimationFrame
-                  (fn [app view]
+                  (fn [db conn view]
                     (js/requestAnimationFrame
                       (fn []
-                        (render-app app view)
+                        (render-app db conn view)
                         (swap! render-state stop-render))))
-                  (fn [app view]
-                    (render-app app view)
+                  (fn [db conn view]
+                    (render-app db conn view)
                     (js/setTimeout (fn [] (swap! render-state stop-render)) 16)))]
 
   (add-watch render-state :render-state-updates
@@ -466,22 +488,26 @@
                (match [o n]
                       [{:state :waiting
                         :view  _
-                        :app   _}
+                        :db   _
+                        :conn _}
                        {:state :pending
                         :view  v
-                        :app   app}] (render-fn app v)
+                        :db   db
+                        :conn conn}] (render-fn db conn v)
                       [{:state :queued
                         :view  _
-                        :app   _}
+                        :db   _
+                        :conn _}
                        {:state :pending
                         :view  v
-                        :app   app}] (render-fn app v)
+                        :db db
+                        :conn conn}] (render-fn db conn v)
                       :else nil)))
 
   (defn request-render
     "Render the given application state tree."
-    [app view]
-    (swap! render-state start-render app view)))
+    [db conn view]
+    (swap! render-state start-render db conn view)))
 
 
 

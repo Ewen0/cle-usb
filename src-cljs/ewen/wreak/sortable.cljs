@@ -95,20 +95,20 @@
     (filter not-nil? updates)))
 
 
-(defn pos->index-keys* [app id]
+(defn pos->index-keys* [conn id]
   (->> (ds/pattern->index-keys [id :password/pos nil nil])
-       (into [app])))
+       (into [conn])))
 
-(defn sort-index->index-keys* [app id]
+(defn sort-index->index-keys* [conn id]
   (->> (ds/pattern->index-keys [id :state/sort-index nil nil])
-       (into [app])))
+       (into [conn])))
 
-(defn pos->index-keys [app ids]
-  (->> (map (partial pos->index-keys* app) ids)
+(defn pos->index-keys [conn ids]
+  (->> (map (partial pos->index-keys* conn) ids)
        (into #{})))
 
-(defn sort-index->index-keys [app ids]
-  (->> (map (partial sort-index->index-keys* app) ids)
+(defn sort-index->index-keys [conn ids]
+  (->> (map (partial sort-index->index-keys* conn) ids)
        (into #{})))
 
 
@@ -150,16 +150,16 @@
     (-> (clojure.set/intersection (set diff1) (set diff2))
         (disj nil))))
 
-(defn update-listen-ids-builder [app chan-pos chan-sort-index]
+(defn update-listen-ids-builder [conn chan-pos chan-sort-index]
   (fn update-listen-ids [_ _ old-ids new-ids]
-    (ds/listen! app chan-pos (pos->index-keys app new-ids))
-    (ds/listen! app chan-sort-index (sort-index->index-keys app new-ids))))
+    (ds/listen! conn chan-pos (pos->index-keys conn new-ids))
+    (ds/listen! conn chan-sort-index (sort-index->index-keys conn new-ids))))
 
-(defn ids->sort-state-builder [app sort-state]
+(defn ids->sort-state-builder [conn sort-state]
   (fn ids->sort-state [_ _ old-ids new-ids]
     (let [rem-ids (clojure.set/difference old-ids new-ids)
           add-ids (clojure.set/difference new-ids old-ids)]
-      (swap! sort-state (comp #(sortable-add-ids % @app add-ids)
+      (swap! sort-state (comp #(sortable-add-ids % @conn add-ids)
                               #(remove-ids % rem-ids))))))
 
 (defn ids->comp-state-builder [app comp]
@@ -207,15 +207,15 @@
 
 
 
-(defn listen-passwords-ids! [react-comp app ids chan-pos chan-sort-index]
+(defn listen-passwords-ids! [react-comp db conn ids chan-pos chan-sort-index]
   (let [ ;sort-state is a "local view" of the sorted entities and is used to recompute
          ;the sorting order of every entities when they are dragged. Only the entities with a
          ;position are considered since the position is used to recompute the sort order.
          sort-state (atom {})
-         ;The map keys are the entities to be sorted ids.
+         ;The map keys are the entities to be sorted.
          sort-state-schema {s/Int {:pos s/Int}}]
     ;Initialize sort-state and sort-state-no-nil-pos.
-    (swap! sort-state sortable-add-ids @app @ids)
+    (swap! sort-state sortable-add-ids db @ids)
     ;For every position update of any entities, report the position update
     ;back into sort-state
     (go-loop []
@@ -235,12 +235,12 @@
                      (sortable-replace-state! react-comp (apply-index-updates state updates)))))
                (recur))
              (async/close! chan-sort-index))
-    (add-watch sort-state :sort-state-updates (build-process-sortable app))
-    (add-watch ids :ids-updates (juxt  (update-listen-ids-builder app chan-pos chan-sort-index)
-                                       (ids->comp-state-builder app react-comp)
-                                       (ids->sort-state-builder app sort-state)))
-    (ds/listen! app chan-pos (pos->index-keys app @ids))
-    (ds/listen! app chan-sort-index (sort-index->index-keys app @ids))))
+    (add-watch sort-state :sort-state-updates (build-process-sortable conn))
+    (add-watch ids :ids-updates (juxt  (update-listen-ids-builder conn chan-pos chan-sort-index)
+                                       (ids->comp-state-builder conn react-comp)
+                                       (ids->sort-state-builder conn sort-state)))
+    (ds/listen! conn chan-pos (pos->index-keys conn @ids))
+    (ds/listen! conn chan-sort-index (sort-index->index-keys conn @ids))))
 
 
 
@@ -266,35 +266,35 @@
 ;of the react component.
 (def sortable-mixin
   (mixin
-    {:getInitialState      (fn [_ {:keys [app]}]
+    {:getInitialState      (fn [{:keys [db]} _]
                              ;The initial state is the ids with their sort indexes, sorted by their
                              ;sort indexes. The state is assoc with the key ::sortable-state within the
                              ;state of the react component.
-                             (->> (map (fn [id] {id {:sort-index (-> (ds/entity @app id)
+                             (->> (map (fn [id] {id {:sort-index (-> (ds/entity db id)
                                                                      :state/sort-index)}})
                                        @(.-ids *component*))
                                   (apply merge)
                                   (sort-by (comp :sort-index val) compare*)
                                   (into {})
                                   (assoc {} ::sortable-state)))
-     :componentDidMount    (fn [_ _ {:keys [app]}]
+     :componentDidMount    (fn [{:keys [db conn]} _ _]
                              (let [chan-pos (async/chan)
                                    chan-sort-index (async/chan)]
-                               (->> (set-sortable-pos-chan! app chan-pos)
+                               (->> (set-sortable-pos-chan! conn chan-pos)
                                     (aset *component* ::pos-chan-id))
-                               (->> (set-sortable-sort-index-chan! app chan-sort-index)
+                               (->> (set-sortable-sort-index-chan! conn chan-sort-index)
                                     (aset *component* ::sort-index-chan-id))
-                               (listen-passwords-ids! *component* app (.-ids *component*) chan-pos chan-sort-index)))
-     :componentWillUnmount (fn [_ _ {:keys [app]}]
+                               (listen-passwords-ids! *component* db conn (.-ids *component*) chan-pos chan-sort-index)))
+     :componentWillUnmount (fn [{:keys [conn]} _ _]
                              (remove-watch (.-ids *component*) :ids-updates)
-                             (ds/unlisten! app (->> (aget *component* ::pos-chan-id)
-                                                    (ds/entity @app) :sortable/chan-pos))
-                             (ds/unlisten! app (->> (aget *component* ::sort-index-chan-id)
-                                                    (ds/entity @app) :sortable/chan-sort-index))
-                             (ds/transact! app [[:db.fn/retractAttribute
+                             (ds/unlisten! conn (->> (aget *component* ::pos-chan-id)
+                                                    (ds/entity @conn) :sortable/chan-pos))
+                             (ds/unlisten! conn (->> (aget *component* ::sort-index-chan-id)
+                                                    (ds/entity @conn) :sortable/chan-sort-index))
+                             (ds/transact! conn [[:db.fn/retractAttribute
                                                  (aget *component* ::pos-chan-id)
                                                  :sortable/chan-pos]])
-                             (ds/transact! app [[:db.fn/retractAttribute
+                             (ds/transact! conn [[:db.fn/retractAttribute
                                                  (aget *component* ::sort-index-chan-id)
                                                  :sortable/chan-pos]]))}))
 

@@ -1,6 +1,6 @@
 (ns ewen.cle-usb.data
   (:require [datascript :as ds])
-  (:require-macros [datascript :refer [defquery]]))
+  (:require-macros [datascript :refer [defquery query]]))
 
 
 
@@ -92,9 +92,10 @@
                       attr val}]))
 
 
-(defquery get-current-view [data]
-          '[:find ?view
-            :where [_ :view/current ?view]] data)
+(def get-current-view (-> (query [data]
+                                 '[:find ?view
+                                   :where [_ :view/current ?view]] data)
+                          (ds/wrap-query only)))
 
 
 (defn get-current-view-id [data]
