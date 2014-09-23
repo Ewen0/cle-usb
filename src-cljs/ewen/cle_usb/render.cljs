@@ -257,27 +257,16 @@
                                              (let [state (:ewen.wreak.sortable/sortable-state state)]
                                                (html [:div#list-pwd
                                                       (map (fn [[id _]]
-                                                             (placeholder {:id id :db db} {:app conn} {:key id :ref id}))
+                                                             (placeholder {:id id :db db :conn conn} _ {:key id}))
                                                            state)])))
                 :mixins                    #js [sortable-mixin]
                 :ids                       (atom #{})
-                :componentDidMount         (fn [{:keys [db conn]} _ _]
-                                             (update-comp *component* db)
-                                             (let [index-keys (ds/get-index-keys data/get-list-passwords conn)
-                                                   comp *component*
-                                                   chan (async/chan)]
-                                               (go-loop []
-                                                        (when-let [{:keys [db-after]} (async/<! chan)]
-                                                          (update-comp comp db-after)
-                                                          (recur))
-                                                        (async/close! chan))
-                                               (data/set-pwd-list-chan! conn chan)
-                                               (ds/listen! conn chan index-keys)))
-                :componentWillUnmount (fn [{:keys [conn]} _ _]
-                                        (ds/unlisten! conn (data/get-pwd-list-chan @conn))
-                                        (data/retract-pwd-list-chan! conn))
-                :componentWillReceiveProps (fn [{:keys [db]} _ _ _]
-                                             (update-comp *component* db))})))
+                :componentDidMount         (fn [{:keys [db]} _ _]
+                                             (update-comp *component* db))
+                :componentWillReceiveProps (fn [{:keys [db tx-index-keys]} _ _ _]
+                                             (let [index-keys (ds/get-index-keys data/get-list-passwords)]
+                                               (when (not (nil? (clojure.set/intersection tx-index-keys index-keys)))
+                                                 (update-comp *component* db))))})))
 
 
 
@@ -372,10 +361,10 @@
 
 
 (let [current-view (atom nil)]
-  (defn render [{:keys [conn db tx-data index-keys]}]
+  (defn render [{:keys [conn db tx-data tx-index-keys]}]
     (when (or (nil? tx-data)
-              (nil? index-keys)
-              (not (nil? (clojure.set/intersection index-keys (ds/get-index-keys data/get-current-view conn)))))
+              (nil? tx-index-keys)
+              (not (nil? (clojure.set/intersection tx-index-keys (ds/get-index-keys data/get-current-view conn)))))
       (reset! current-view (data/get-current-view db)))
     (when (nil? @current-view)
       (reset! current-view (data/get-current-view db)))
@@ -383,7 +372,7 @@
       :home (do
               (w/render (header nil {:app conn})
                              (-> (sel "#header") single-node))
-              (w/render (passwords-list {:db db :conn conn})
+              (w/render (passwords-list {:db db :conn conn :tx-index-keys tx-index-keys})
                         (-> (sel "#app") single-node)))
       :new-password (do
                       (w/render (header nil {:app conn})

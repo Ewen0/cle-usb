@@ -19,7 +19,7 @@
 
 
 
-(def app (data/load-app))
+(def conn (data/load-app))
 
 
 
@@ -29,25 +29,19 @@
 
 
 
-;render
-(defn render-view [db conn view]
-  #_(render/request-render db conn view)
-  (render/render {:conn conn :db db}))
+
+
+(let [index-keys (ds/get-index-keys data/get-current-view conn)
+      callback (fn [{:keys [db-after tx-data tx-index-keys]}]
+                 (render/render {:conn conn
+                                 :db db-after
+                                 :tx-data tx-data
+                                 :tx-index-keys tx-index-keys}))]
+  (ds/listen! conn callback index-keys))
 
 
 
-(let [index-keys (ds/get-index-keys data/get-current-view app)
-      callback (fn [tx-report]
-                 (let [view (data/get-current-view (:db-after tx-report))]
-                   (render-view (:db-after tx-report) app view)))]
-  (ds/listen! app callback index-keys))
-
-
-
-
-(let [db @app]
-  (let [view (data/get-current-view db)]
-    (render-view db app view)))
+(render/render {:conn conn :db @conn})
 
 
 
@@ -104,7 +98,7 @@
 
   (ds/q '[:find ?id ?name
           :where [?id :react/name ?name]]
-        @app)
+        @conn)
 
 
 
@@ -119,14 +113,14 @@
 
   (ds/q2 '[:find ?view
            :where [_ :view/current ?view]]
-         @app)
+         @conn)
 
   (-> (ds/empty-db) (ds/with [[:db/add 1 :e "e"]]))
 
   (ds/q2 '[:find ?view
            :in $ %
            :where (current ?view)]
-         @app '[[(current ?view) [_ :view/current ?view]]])
+         @conn '[[(current ?view) [_ :view/current ?view]]])
 
   (do (set! datascript/built-ins (assoc datascript/built-ins 'subs subs))
 
@@ -174,11 +168,11 @@
 
 
 
-  (data/get-channels @app)
+  (data/get-channels @conn)
 
-  (data/get-list-passwords @app)
+  (data/get-list-passwords @conn)
 
-  (->> (data/get-list-passwords @app)
+  (->> (data/get-list-passwords @conn)
        (map (fn [[id label dragging sort-index]]
               {:id          id
                :label       label
@@ -187,9 +181,9 @@
        (sort-by :sort-index)
        vec)
 
-  (-> (meta data/get-list-passwords) :index-keys-fn (apply [@app]))
+  (-> (meta data/get-list-passwords) :index-keys-fn (apply [@conn]))
 
-  (data/get-current-view @app)
+  (data/get-current-view @conn)
 
   )
 
