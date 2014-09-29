@@ -26,7 +26,7 @@
 (extend-type cljs.core.async.impl.channels/ManyToManyChannel
   ds/IPublish
   (publish [this report]
-    (async/put! this report)))
+    (go (async/>! this report))))
 
 
 
