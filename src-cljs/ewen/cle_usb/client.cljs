@@ -5,7 +5,12 @@
             [goog.style :as gstyle]
             [ewen.cle-usb.render :as render]
             [ewen.cle-usb.data :as data]
-            [datascript :as ds])
+            [datascript :as ds]
+            [ewen.wreak :as w :refer [*component* mixin component]]
+            [domina :refer [single-node]]
+            [domina.css :refer [sel]]
+            [sablono.core :refer-macros [html html-expand]]
+            [react-google-closure])
   (:require-macros [cljs.core.async.macros :refer [go go-loop]]))
 
 
@@ -31,17 +36,10 @@
 
 
 
-(let [index-keys (ds/get-index-keys data/get-current-view conn)
-      callback (fn [{:keys [db-after tx-data tx-index-keys]}]
-                 (render/render {:conn conn
-                                 :db db-after
-                                 :tx-data tx-data
-                                 :tx-index-keys tx-index-keys}))]
-  (ds/listen! conn callback index-keys))
 
 
 
-(render/render {:conn conn :db @conn})
+(render/render conn)
 
 
 

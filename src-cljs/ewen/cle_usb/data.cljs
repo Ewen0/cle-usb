@@ -82,7 +82,11 @@
 
 
 
-
+(defn get-new-password-id [data]
+  (-> (ds/q '[:find ?id
+              :where [?id :new-password/label]]
+            data)
+      only))
 
 
 
@@ -90,6 +94,12 @@
 (defn set-attr! [app id attr val]
   (ds/transact! app [{:db/id id
                       attr val}]))
+
+(defn get-by-attr [db attr]
+  (ds/q '[:find ?id
+          :in $ ?attr
+          :where [?id ?attr]]
+        db attr))
 
 
 (def get-current-view (-> (query [data]
