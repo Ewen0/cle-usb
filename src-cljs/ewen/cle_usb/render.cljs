@@ -12,7 +12,6 @@
             [clojure.string]
             [cljs.core.match]
             [goog.style :as gstyle]
-            [react-google-closure]
             [ewen.wreak :as w :refer [*component* mixin component]]
             [ewen.wreak.sortable :refer [sortable-mixin]]
             [ewen.wreak.dd-target :refer [dd-target-mixin dd-target-mixin-render
@@ -63,7 +62,7 @@
 
 
 
-
+ #_(def tt (mixin {:componentWillMount (fn [] (.log js/console "tt " (aget *component* "conn")))}))
 
 
 
@@ -94,6 +93,7 @@
                                        "Home"]
                                       [:a.new-pwd-link {:href "#"}
                                        "Add new password"]]]]]))
+                  :componentWillMount (fn [] #_(.log js/console "tt " (aget *component* "conn")))
                   :componentDidMount (fn [_ _ db]
                                        (let [comp *component*
                                               view-id (data/get-current-view-id db)]
@@ -111,7 +111,8 @@
                                                      (:click event-types))
                                           (unlisten! (-> (.getDOMNode *component*)
                                                          (sel ".new-pwd-link"))
-                                                     (:click event-types)))}))
+                                                     (:click event-types)))
+                  #_:mixins #_#js [tt]}))
 
 
 
@@ -264,11 +265,6 @@
 
 
 
-(defn set-new-pwd-callback! [app callback]
-  (-> (ds/transact! app [{:db/id -1
-                          :new-password/callback callback}])
-      :tempids
-      (get -1)))
 
 (defn enable-button? [db id]
   (let [new-label (-> (ds/entity db id)
@@ -284,49 +280,51 @@
   (data/add-password! app label)
   (data/set-current-view! app :home))
 
+
 (def new-password
   (component "new-password"
-             {:render (fn [_ {:keys [label value enabled] :as state}]
-                        (let [comp *component*]
-                          (html [:div
-                                 [:div#password-label-wrapper.section
-                                  [:div.section-header [:h2 "Password label"]]
-                                  [:input#password-label {:placeholder "Password label"
-                                                          :type        "text"
-                                                          :value       label
-                                                          :onChange    #(when-let [id (aget comp :ewen.wreak/id)]
-                                                                         (data/set-attr! (.-conn comp) id :new-password/label
-                                                                                         (.. % -target -value)))}]]
-                                 [:div#password-value-wrapper.section
-                                  [:div.section-header
-                                   [:h2 "Password value"]]
-                                  [:input#password-value {:placeholder "Password value"
-                                                          :type        "password"
-                                                          :value       value
-                                                          :onChange    #(when-let [id (aget comp :ewen.wreak/id)]
-                                                                         (data/set-attr! (.-conn comp) id :new-password/value
-                                                                                         (.. % -target -value)))}]]
-                                 [:div.action-buttons [:input#new-password-button
-                                                       (cond-> {:type  "button"
-                                                                :value "Validate"}
-                                                               (not enabled) (assoc :disabled "disabled"))]]
-                                 [:p#err-msg]])))
-              :getInitialState (fn [_ _]
-                                 {:label ""
-                                  :value ""
-                                  :enabled false})
-              :componentDidMount (fn [_ _])
-              :dbDidUpdate (fn [_ _ {:keys [db-after] :as report}]
-                             (let [id (aget *component* :ewen.wreak/id)
-                                   entity (ds/entity db-after id)]
-                               {:label (:new-password/label entity)
-                                :value (:new-password/value entity)
-                                :enabled (:new-password/button-enabled entity)}))
-              :componentWillUnmount (fn [_ _]
-                                      #_(unlisten! (-> (.getDOMNode *component*)
-                                                     (sel ".new-password-button"))
-                                                 (:click event-types)))
-              :mixins #js [(w/component-id-mixin "new-password")]}))
+             (mixin {
+                      :render               (fn [_ {:keys [label value enabled] :as state}]
+                                              (let [comp *component*]
+                                                (html [:div
+                                                       [:div#password-label-wrapper.section
+                                                        [:div.section-header [:h2 "Password label"]]
+                                                        [:input#password-label {:placeholder "Password label"
+                                                                                :type        "text"
+                                                                                :value       label
+                                                                                :onChange    #(when-let [id (aget comp :ewen.wreak/id)]
+                                                                                               (data/set-attr! (.-conn comp) id :new-password/label
+                                                                                                               (.. % -target -value)))}]]
+                                                       [:div#password-value-wrapper.section
+                                                        [:div.section-header
+                                                         [:h2 "Password value"]]
+                                                        [:input#password-value {:placeholder "Password value"
+                                                                                :type        "password"
+                                                                                :value       value
+                                                                                :onChange    #(when-let [id (aget comp :ewen.wreak/id)]
+                                                                                               (data/set-attr! (.-conn comp) id :new-password/value
+                                                                                                               (.. % -target -value)))}]]
+                                                       [:div.action-buttons [:input#new-password-button
+                                                                             (cond-> {:type  "button"
+                                                                                      :value "Validate"}
+                                                                                     (not enabled) (assoc :disabled "disabled"))]]
+                                                       [:p#err-msg]])))
+                      :getInitialState      (fn [_ _]
+                                              {:label   ""
+                                               :value   ""
+                                               :enabled false})
+                      :componentDidMount    (fn [_ _])
+                      :dbDidUpdate          (fn [_ _ {:keys [db-after] :as report}]
+                                              (let [id (aget *component* :ewen.wreak/id)
+                                                    entity (ds/entity db-after id)]
+                                                {:label   (:new-password/label entity)
+                                                 :value   (:new-password/value entity)
+                                                 :enabled (:new-password/button-enabled entity)}))
+                      :componentWillUnmount (fn [_ _]
+                                              #_(unlisten! (-> (.getDOMNode *component*)
+                                                             (sel ".new-password-button"))
+                                                         (:click event-types)))}
+                    (w/component-id-mixin "new-password"))))
 
 
 

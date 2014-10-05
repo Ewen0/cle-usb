@@ -9,8 +9,7 @@
             [ewen.wreak :as w :refer [*component* mixin component]]
             [domina :refer [single-node]]
             [domina.css :refer [sel]]
-            [sablono.core :refer-macros [html html-expand]]
-            [react-google-closure])
+            [sablono.core :refer-macros [html html-expand]])
   (:require-macros [cljs.core.async.macros :refer [go go-loop]]))
 
 
