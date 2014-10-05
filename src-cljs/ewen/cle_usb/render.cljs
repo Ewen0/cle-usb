@@ -242,25 +242,18 @@
 
 
 
-(let [update-comp (fn [comp db]
-                    (let [ids (data/get-list-passwords db)]
-                      (reset! (.-ids comp) ids)))]
-  (def passwords-list
-    (component "passwords-list"
-               {:render                    (fn [{:keys [db conn]} state _]
-                                             (let [state (:ewen.wreak.sortable/sortable-state state)]
-                                               (html [:div#list-pwd
-                                                      (map (fn [[id _]]
-                                                             #_(placeholder {:id id :db db :conn conn} _ {:key id}))
-                                                           state)])))
-                #_:mixins                    #_#js [sortable-mixin]
-                :ids                       (atom #{})
-                :componentDidMount         (fn [{:keys [db]} _ _]
-                                             (update-comp *component* db))
-                :componentWillReceiveProps (fn [{:keys [db tx-index-keys]} _ _ _]
-                                             (let [index-keys (ds/get-index-keys data/get-list-passwords)]
-                                               (when (not (nil? (clojure.set/intersection tx-index-keys index-keys)))
-                                                 (update-comp *component* db))))})))
+
+(def passwords-list
+  (component "passwords-list"
+             (mixin {:render            (fn [_ state]
+                                          (.log js/console (str state))
+                                          (html [:div#list-pwd
+                                                 (map (fn [[id _]]
+                                                        #_(placeholder {:id id :db db :conn conn} _ {:key id}))
+                                                      state)]))
+                     :getInitialState   (fn [_ db]
+                                          (data/get-list-passwords db))}
+                    sortable-mixin)))
 
 
 

@@ -265,19 +265,18 @@
 ;ewen.wreak.dd-target items to be sorted. The ids must be passed through the "ids" property
 ;of the react component.
 (def sortable-mixin
-  (mixin
-    {:getInitialState      (fn [{:keys [db]} _]
-                             ;The initial state is the ids with their sort indexes, sorted by their
-                             ;sort indexes. The state is assoc with the key ::sortable-state within the
-                             ;state of the react component.
-                             (->> (map (fn [id] {id {:sort-index (-> (ds/entity db id)
-                                                                     :state/sort-index)}})
-                                       @(.-ids *component*))
-                                  (apply merge)
-                                  (sort-by (comp :sort-index val) compare*)
-                                  (into {})
-                                  (assoc {} ::sortable-state)))
-     :componentDidMount    (fn [{:keys [db conn]} _ _]
+  {:getInitialState (fn [_ db state]
+                      ;The initial state is the ids with their sort indexes, sorted by their
+                      ;sort indexes. The state is assoc with the key ::sortable-state within the
+                      ;state of the react component.
+                      (->> (map (fn [id] {id {:sort-index (-> (ds/entity db id)
+                                                              :state/sort-index)}})
+                                state)
+                           (apply merge)
+                           (sort-by (comp :sort-index val) compare*)
+                           (into {})))
+
+  #_:componentDidMount #_(fn [{:keys [db conn]} _ _]
                              (let [chan-pos (async/chan)
                                    chan-sort-index (async/chan)]
                                (->> (set-sortable-pos-chan! conn chan-pos)
@@ -285,7 +284,7 @@
                                (->> (set-sortable-sort-index-chan! conn chan-sort-index)
                                     (aset *component* ::sort-index-chan-id))
                                (listen-passwords-ids! *component* db conn (.-ids *component*) chan-pos chan-sort-index)))
-     :componentWillUnmount (fn [{:keys [conn]} _ _]
+  #_:componentWillUnmount #_(fn [{:keys [conn]} _ _]
                              (remove-watch (.-ids *component*) :ids-updates)
                              (ds/unlisten! conn (->> (aget *component* ::pos-chan-id)
                                                     (ds/entity @conn) :sortable/chan-pos))
@@ -296,5 +295,5 @@
                                                  :sortable/chan-pos]])
                              (ds/transact! conn [[:db.fn/retractAttribute
                                                  (aget *component* ::sort-index-chan-id)
-                                                 :sortable/chan-pos]]))}))
+                                                 :sortable/chan-pos]]))})
 
