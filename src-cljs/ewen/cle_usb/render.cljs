@@ -14,6 +14,7 @@
             [goog.style :as gstyle]
             [ewen.wreak :as w :refer [*component* mixin component]]
             [ewen.wreak.sortable :refer [sortable-mixin]]
+            [ewen.wreak.sorted :refer [sorted-mixin]]
             [ewen.wreak.dd-target :refer [dd-target-mixin dd-target-mixin-render
                                           get-dragging]]
             [ewen.wreak.dd-handle :refer [dd-handle-mixin]])
@@ -246,14 +247,15 @@
 (def passwords-list
   (component "passwords-list"
              (mixin {:render            (fn [_ state]
-                                          (.log js/console (str state))
                                           (html [:div#list-pwd
-                                                 (map (fn [[id _]]
+                                                 (.log js/console (str state))
+                                                 (map (fn [id]
                                                         #_(placeholder {:id id :db db :conn conn} _ {:key id}))
                                                       state)]))
                      :getInitialState   (fn [_ db]
                                           (data/get-list-passwords db))}
-                    sortable-mixin)))
+                    sorted-mixin
+                    #_sortable-mixin)))
 
 
 

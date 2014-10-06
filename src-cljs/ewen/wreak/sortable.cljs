@@ -112,17 +112,7 @@
        (into #{})))
 
 
-(defn sortable-add-ids
-  "Add all the ids to sort-state. The DB is used to retrieve the sort indexes
-  and positions associated with each entity."
-  [sort-state db ids]
-  (let [sort-state (atom sort-state)]
-    (doseq [id ids]
-      (let [pos (-> (ds/entity db id)
-                    :password/pos)]
-        (when (not-nil? pos)
-          (swap! sort-state assoc-in [id :pos] pos))))
-    (into {} (sort-by (comp :pos val) compare* @sort-state))))
+
 
 (defn comp-state-add-ids
   [state db ids]
@@ -214,7 +204,7 @@
          sort-state (atom {})
          ;The map keys are the entities to be sorted.
          sort-state-schema {s/Int {:pos s/Int}}]
-    ;Initialize sort-state and sort-state-no-nil-pos.
+    ;Initialize sort-state.
     (swap! sort-state sortable-add-ids db @ids)
     ;For every position update of any entities, report the position update
     ;back into sort-state
@@ -261,6 +251,34 @@
       (get -1)))
 
 
+(defn sort-state [db state]
+  (->> (map (fn [id] {id {:sort-index (-> (ds/entity db id)
+                                          :state/sort-index)}})
+            state)
+       (apply merge)
+       (sort-by (comp :sort-index val) compare*)
+       (into {})))
+
+(defn positions-state-add-ids
+  "Add all the ids to sort-state. The DB is used to retrieve the sort indexes
+  and positions associated with each entity."
+  [positions-state db ids]
+  (let [state (atom positions-state)]
+    (doseq [id ids]
+      (let [pos (-> (ds/entity db id)
+                    :password/pos)]
+        (when (not-nil? pos)
+          (swap! state assoc-in [id :pos] pos))))
+    (into {} (sort-by (comp :pos val) compare* @state))))
+
+(defn remove-ids [state ids]
+  (let [state (atom state)]
+    (doseq [id ids]
+      (swap! state dissoc id))
+    @state))
+
+(defn populate-positions-state [])
+
 ;The mixin must be given a set of ids. Those are the ids of the entities associated with the
 ;ewen.wreak.dd-target items to be sorted. The ids must be passed through the "ids" property
 ;of the react component.
@@ -269,12 +287,14 @@
                       ;The initial state is the ids with their sort indexes, sorted by their
                       ;sort indexes. The state is assoc with the key ::sortable-state within the
                       ;state of the react component.
-                      (->> (map (fn [id] {id {:sort-index (-> (ds/entity db id)
-                                                              :state/sort-index)}})
-                                state)
-                           (apply merge)
-                           (sort-by (comp :sort-index val) compare*)
-                           (into {})))
+                      (sort-state db state))
+   :stateWillUpdate (fn [db _ state]
+                      (let [positions-state nil]
+
+                        (sort-state db state)))
+   :positions-state (atom {})
+   :dbDidUpdate (fn [props state {:keys [tx-data]}]
+                  )
 
   #_:componentDidMount #_(fn [{:keys [db conn]} _ _]
                              (let [chan-pos (async/chan)
