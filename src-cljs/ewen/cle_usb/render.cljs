@@ -310,7 +310,9 @@
                                                :enabled false})
                       :componentDidMount    (fn [_ _])
                       :dbDidUpdate          (fn [_ _ {:keys [db-after] :as report}]
-                                              (let [id (aget *component* :ewen.wreak/id)
+                                              (.log js/console (str (:tx-data report)))
+                                              (.log js/console (str (:tx-meta report)))
+                                              #_(let [id (aget *component* :ewen.wreak/id)
                                                     entity (ds/entity db-after id)]
                                                 {:label   (:new-password/label entity)
                                                  :value   (:new-password/value entity)
@@ -341,11 +343,15 @@
                               db conn))))
 
 (defn render [conn]
-  (ds/listen! conn (fn [{:keys [db-after]}]
-                     (render* conn db-after (data/get-current-view db-after)))
-              (ds/get-index-keys data/get-current-view conn))
-  (let [db @conn]
-    (render* conn db (data/get-current-view db))))
+  (let [db @conn
+        current-view-id (data/get-current-view-id db)
+        view (atom (-> (ds/entity db current-view-id) :view/current))]
+    (ds/listen! conn (fn [{:keys [db-after]}]
+                       (let [view-after (-> (ds/entity db-after current-view-id) :view/current)]
+                         (when (not= view-after @view)
+                           (reset! view view-after)
+                           (render* conn db-after view-after)))))
+    (render* conn db @view)))
 
 
 

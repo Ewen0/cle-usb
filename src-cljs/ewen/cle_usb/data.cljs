@@ -56,20 +56,14 @@
 
 
 
-(defquery get-list-passwords*
-          [data] '[:find ?id
-                   :in $
-                   :where [?id :password/label ?label]] data)
+(defn get-list-passwords [data]
+  (->> (ds/q '[:find ?id
+               :in $
+               :where [?id :password/label ?label]]
+             data)
+       (map first)
+       set))
 
-(def get-list-passwords (reify
-                          cljs.core/IFn
-                          (-invoke [this data]
-                            (->> (get-list-passwords* data)
-                                (apply concat)
-                                set))
-                          ds/IndexKeys
-                          (get-index-keys [this conn]
-                            (ds/get-index-keys get-list-passwords* conn))))
 
 (defn get-password-labels [data]
   (->> (ds/q '[:find ?label
@@ -91,9 +85,14 @@
 
 
 
-(defn set-attr! [app id attr val]
-  (ds/transact! app [{:db/id id
-                      attr val}]))
+(defn set-attr!
+  ([app id attr val]
+   (ds/transact! app [{:db/id id
+                       attr   val}]))
+  ([app id attr val tx-meta]
+   (ds/transact! app [{:db/id id
+                       attr   val}]
+                 tx-meta)))
 
 (defn get-by-attr [db attr]
   (ds/q '[:find ?id
@@ -102,10 +101,12 @@
         db attr))
 
 
-(def get-current-view (-> (query [data]
-                                 '[:find ?view
-                                   :where [_ :view/current ?view]] data)
-                          (ds/wrap-query only)))
+
+(defn get-current-view [data]
+  (-> (ds/q '[:find ?view
+              :where [_ :view/current ?view]]
+            data)
+      only))
 
 
 (defn get-current-view-id [data]

@@ -15,7 +15,7 @@
                            [io.pedestal/pedestal.service "0.3.0"]
                            [io.pedestal/pedestal.service-tools "0.3.0"]
                            [javax.servlet/javax.servlet-api "3.1.0" :scope "provided"]
-                           [datascript "0.2.0-analyze-q"]
+                           [datascript "0.4.1"]
                            [com.cemerick/clojurescript.test "0.3.1"]
                            [org.clojure/core.match "0.2.1"]
                            [com.palletops/pallet "0.8.0-RC.9"]
@@ -38,7 +38,7 @@
                        :uberjar {:resource-paths ["resources/prod"]
                                   :aot :all}}
             :cljsbuild {:builds [{:id "dev"
-                                  :source-paths ["src-cljs" "/home/ewen/clojure/wreak/src-cljs"]
+                                  :source-paths ["src-cljs" "/home/ewen/clojure/wreak/src-cljs" "/home/ewen/clojure/datascript/src"]
                                   :compiler {
                                               :output-to "resources/dev/public/cljs/cle-usb.js"
                                               :output-dir "resources/dev/public/cljs/"
