@@ -1,6 +1,6 @@
 (ns ewen.wreak.dd-handle
   (:require [cljs.core.async :as async]
-            [ewen.wreak :refer [*component* mixin replace-state! get-state]]
+            [ewen.wreak :refer [*component* mixin]]
             [datascript :as ds]
             [cljs.core.match]
             [goog.style :as gstyle]
@@ -38,16 +38,7 @@
               (.-pageY))}
       {:x (.-pageX e) :y (.-pageY e)})))
 
-(def get-dragging (reify
-                    cljs.core/IFn
-                    (-invoke [this db pwd-id]
-                      (let [dragging (get (ds/entity db pwd-id) :state/dragging)]
-                        (or dragging false)))
-                    ds/IndexKeys
-                    (get-index-keys [this db pwd-id]
-                      (->> (ds/pattern->index-keys [pwd-id :state/dragging nil nil])
-                           (into [db])
-                           (conj #{})))))
+
 
 (defn set-dragging! [app pwd-id dragging]
   (ds/transact! app [{:db/id        pwd-id
@@ -76,7 +67,7 @@
   (- (:y pos) handle-pos))
 
 (defn dd-move-callback [app id e]
-  (when (get-dragging @app id)
+  (when (-> (ds/entity @app id) :state/dragging)
     (let [handle-pos (-> (ds/entity @app id) :state/handle-pos)]
       (set-pwd-pos! app id (merge-pos (event->pos e)
                                            handle-pos)))))
@@ -86,53 +77,31 @@
                       attr val}]))
 
 
-(defn listen-dragging-helper! [app pwd-id callback]
-  (let [index-keys (ds/get-index-keys get-dragging app pwd-id)]
-    (ds/listen! app callback index-keys)))
-
-(defn listen-dragging! [app id callback]
-  (listen-dragging-helper! app id callback))
 
 (def dd-handle-mixin
-  (mixin
-    {:componentDidMount (fn [{:keys [id]} _ {:keys [app]}]
-                          (listen! (.getDOMNode *component*)
-                                   (:down event-types)
-                                   #(dd-down-callback app id %))
-                          (let [chan (async/chan)]
-                            (go-loop []
-                                     (when-let [{:keys [tx-data]} (async/<! chan)]
-                                       (doseq [datom tx-data]
-                                         (match [datom]
-                                                [{:e     id
-                                                  :a     :state/dragging
-                                                  :v     true
-                                                  :added true}] (do (listen! (:move event-types)
-                                                                             #(dd-move-callback app id %))
-                                                                    (listen! (:up event-types)
-                                                                             #(dd-up-callback app id)))
-                                                :else nil))
-                                       (recur))
-                                     (async/close! chan))
-                            (set-attr! app id :handle-start-dragging-chan chan)
-                            (listen-dragging! app id chan))
-                          (let [chan (async/chan)]
-                            (go-loop []
-                                     (when-let [{:keys [tx-data]} (async/<! chan)]
-                                       (doseq [datom tx-data]
-                                         (match [datom]
-                                                [{:e     id
-                                                  :a     :state/dragging
-                                                  :v     false
-                                                  :added true}] (do (unlisten! domina/root-element (:move event-types))
-                                                                    (unlisten! domina/root-element (:up event-types)))
-                                                :else nil))
-                                       (recur))
-                                     (async/close! chan))
-                            (set-attr! app id :handle-stop-dragging-chan chan)
-                            (listen-dragging! app id chan)))
-     :componentWillUnmount (fn [{:keys [id]} _ {:keys [app]}]
-                             (unlisten! (.getDOMNode *component*)
-                                        (:down event-types))
-                             (ds/unlisten! app (-> (ds/entity @app id) :handle-start-dragging-chan))
-                             (ds/unlisten! app (-> (ds/entity @app id) :handle-stop-dragging-callback)))}))
+  {:componentDidMount    (fn [{:keys [id]} _ _]
+                           (let [conn (.-conn *component*)]
+                               (listen! (.getDOMNode *component*)
+                                        (:down event-types)
+                                        #(dd-down-callback conn id %))))
+   :dbDidUpdate          (fn [{:keys [id]} state {:keys [tx-data]}]
+                           (let [conn (.-conn *component*)]
+                             (doseq [datom tx-data]
+                               (match [datom]
+                                      [{:e     id
+                                        :a     :state/dragging
+                                        :v     true
+                                        :added true}] (do (listen! (:move event-types)
+                                                                   #(dd-move-callback conn id %))
+                                                          (listen! (:up event-types)
+                                                                   #(dd-up-callback conn id)))
+                                      [{:e     id
+                                        :a     :state/dragging
+                                        :v     false
+                                        :added true}] (do (unlisten! domina/root-element (:move event-types))
+                                                          (unlisten! domina/root-element (:up event-types)))
+                                      :else nil)))
+                           state)
+   :componentWillUnmount (fn [{:keys [id]} _]
+                           (unlisten! (.getDOMNode *component*)
+                                      (:down event-types)))})

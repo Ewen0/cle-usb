@@ -21,6 +21,7 @@
                       ;The initial state is the ids with their sort indexes, sorted by their
                       ;sort indexes.
                       (sort-by (partial get-sort-index db) compare* state))
-   :stateWillUpdate (fn [db _ state]
+   :stateWillUpdate (fn [_ db _ state]
                       (sort-by (partial get-sort-index db) compare* state))
-   :dbDidUpdate (fn [_ _ {:keys [tx-data]}])})
+   :dbDidUpdate (fn [_ state {:keys [tx-data]}]
+                  state)})

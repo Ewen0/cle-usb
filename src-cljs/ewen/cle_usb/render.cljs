@@ -15,18 +15,13 @@
             [ewen.wreak :as w :refer [*component* mixin component]]
             [ewen.wreak.sortable :refer [sortable-mixin]]
             [ewen.wreak.sorted :refer [sorted-mixin]]
-            [ewen.wreak.dd-target :refer [dd-target-mixin dd-target-mixin-render
-                                          get-dragging]]
+            [ewen.wreak.dd-target :refer [dd-target-mixin dd-target-mixin-render]]
             [ewen.wreak.dd-handle :refer [dd-handle-mixin]])
   (:require-macros [cljs.core.async.macros :refer [go go-loop]]
                    [cljs.core.match.macros :refer [match]]))
 
 
 
-(extend-type cljs.core.async.impl.channels/ManyToManyChannel
-  ds/IPublish
-  (publish [this report]
-    (go (async/>! this report))))
 
 
 
@@ -117,127 +112,73 @@
 
 
 
-(comment
-
-  (defn listen-password-label! [comp app pwd-id callback]
-    (let [index-keys #{[@app :eavt pwd-id :password/label]}]
-      (ds/listen! app callback
-                  index-keys)))
 
 
 
-  (def password-button
-    (component "password-button"
-               {:render               (fn [_ label _]
-                                        (html [:div.pwd-button
-                                               [:p label]]))
-                :getInitialState      (fn [{:keys [id]} {:keys [app]}]
-                                        (:password/label (ds/entity @app id)))
-                :componentWillMount   (fn [{:keys [id]} _ {:keys [app]}]
-                                        (let [comp *component*
-                                              chan (async/chan)]
-                                          (go-loop []
-                                                   (when-let [{:keys [tx-data]} (async/<! chan)]
-                                                     (let [state (atom (get-state comp))]
-                                                       (when @state
-                                                         (doseq [datom tx-data]
-                                                           (match [datom]
-                                                                  [{:e     pwd-id
-                                                                    :a     :password/label
-                                                                    :v     label
-                                                                    :added true}] (reset! state label)
-                                                                  :else nil))
-                                                         (replace-state! comp @state)))
-                                                     (recur))
-                                                   (async/close! chan))
-                                          (data/set-attr! app id :password-button-callback chan)
-                                          (listen-password-label! comp app id chan)))
-                :componentWillUnmount (fn [{:keys [id]} _ {:keys [app]}]
-                                        (ds/unlisten! app (-> (ds/entity @app id) :password-button-callback)))}))
+(def password-button
+  (component "password-button"
+             {:render               (fn [_ {:keys [label]} _]
+                                      (html [:div.pwd-button
+                                             [:p label]]))
+              :getInitialState      (fn [{:keys [id]} db]
+                                      {:label (-> (ds/entity db id) :password/label)})
+              :dbDidUpdate          (fn [{:keys [id]} state {:keys [db-after]}]
+                                      {:label (-> (ds/entity db-after id) :password/label)})}))
 
 
 
 
 
 
-  (def password-handle
-    (component "password-handle"
-               {:render (fn []
-                          (html [:div.pwd-dragdrop
-                                 [:img {:src "img/1_navigation_collapse.png"}]
-                                 [:img {:src "img/1_navigation_expand.png"}]]))
-                :mixins #js [dd-handle-mixin]}))
+(def password-handle
+  (component "password-handle"
+             (mixin {:render (fn []
+                               (html [:div.pwd-dragdrop
+                                      [:img {:src "img/1_navigation_collapse.png"}]
+                                      [:img {:src "img/1_navigation_expand.png"}]]))}
+                    dd-handle-mixin)))
 
 
 
 
 
-
-  (defn listen-password-dragging! [app pwd-id callback]
-    (let [index-keys (ds/get-index-keys get-dragging app pwd-id)]
-      (ds/listen! app callback
-                  index-keys)))
-
-
-
-
-
-  (def password
-    (component "password"
-               {:render (fn [{:keys [id]}
-                             {:keys [dragging pos] :as state}
-                             {:keys [app]}]
-                          (->> (html [:div.password
-                                      (password-button {:id id} {:app app})
-                                      ;The element to click on in order to start to drag the password
-                                      (password-handle {:id id} {:app app})])
-                               (dd-target-mixin-render {:id id}
-                                                       {:dragging dragging :pos pos}
-                                                       {:app app})))
-                :mixins #js [dd-target-mixin]}))
+(def password
+  (component "password"
+             (mixin {:render (fn [{:keys [id]}
+                                  {:keys [dragging pos] :as state}]
+                               #_(.log js/console (str state))
+                               (->> (html [:div.password
+                                           (password-button {:id id})
+                                           ;The element to click on in order to start to drag the password
+                                           (password-handle {:id id})])
+                                    (dd-target-mixin-render {:id id}
+                                                            {:dragging dragging :pos pos})))}
+                    dd-target-mixin)))
 
 
 
-  ;Placeholder empty div. This is to avoid the whole list of passwords
-  ;to move when a password switch to the dragging state.
-  (def placeholder
-    (component "placeholder"
-               {:render               (fn [{:keys [id]}
-                                           {:keys [dragging] :as state}
-                                           {:keys [app]}]
-                                        (let [width (aget *component* "width")
-                                              height (aget *component* "height")
-                                              dim (if width {:width width} {})
-                                              dim (merge dim (if height {:height height} {}))]
-                                          (html [:div (password {:id id} {:app app})
-                                                 (when dragging
-                                                   [:div {:style (clj->js dim)}])])))
-                :getInitialState      (fn [{:keys [id]} {:keys [app]}]
-                                        {:dragging (get-dragging @app id)})
-                :componentDidMount    (fn [{:keys [id]} _ {:keys [app]}]
-                                        (let [comp *component*
-                                              chan (async/chan)]
-                                          (data/set-attr! app id :state/placeholder-dragging chan)
-                                          (go-loop []
-                                                   (when-let [{:keys [tx-data]} (async/<! chan)]
-                                                     (when-let [state (get-state comp)]
-                                                       (let [state (transient state)]
-                                                         (doseq [datom tx-data]
-                                                           (match [datom]
-                                                                  [{:e     pwd-id
-                                                                    :a     :state/dragging
-                                                                    :v     dragging
-                                                                    :added true}] (assoc! state :dragging dragging)
-                                                                  :else nil))
-                                                         (when (.isMounted comp)
-                                                           (replace-state! comp (persistent! state)))))
-                                                     (recur))
-                                                   (async/close! chan))
-                                          (listen-password-dragging! app id chan))
-                                        (aset *component* "with" (.-width (gstyle/getSize (.getDOMNode *component*))))
-                                        (aset *component* "height" (.-height (gstyle/getSize (.getDOMNode *component*)))))
-                :componentWillUnmount (fn [{:keys [id]} _ {:keys [app]}]
-                                        (ds/unlisten! app (-> (ds/entity @app id) :state/placeholder-dragging)))})))
+;Placeholder empty div. This is to avoid the whole list of passwords
+;to move when a password switch to the dragging state.
+(def placeholder
+  (component "placeholder"
+             {:render               (fn [{:keys [id]}
+                                         {:keys [dragging] :as state}]
+                                      (let [width (aget *component* "width")
+                                            height (aget *component* "height")
+                                            dim (if width {:width width} {})
+                                            dim (merge dim (if height {:height height} {}))]
+                                        (html [:div (password {:id id})
+                                               (when dragging
+                                                 [:div {:style (clj->js dim)}])])))
+              :getInitialState      (fn [{:keys [id]} db]
+                                      {:dragging (-> (ds/entity db id) :state/dragging)})
+              :componentDidMount    (fn [{:keys [id]} _ _]
+                                      (aset *component* "with" (.-width (gstyle/getSize (.getDOMNode *component*))))
+                                      (aset *component* "height" (.-height (gstyle/getSize (.getDOMNode *component*)))))
+              :dbDidUpdate          (fn [{:keys [id]} state {:keys [db-after]}]
+                                      (assoc state
+                                             :dragging
+                                             (-> (ds/entity db-after id) :state/dragging)))}))
 
 
 
@@ -248,9 +189,8 @@
   (component "passwords-list"
              (mixin {:render            (fn [_ state]
                                           (html [:div#list-pwd
-                                                 (.log js/console (str state))
                                                  (map (fn [id]
-                                                        #_(placeholder {:id id :db db :conn conn} _ {:key id}))
+                                                        (placeholder {:id id :key id}))
                                                       state)]))
                      :getInitialState   (fn [_ db]
                                           (data/get-list-passwords db))}
