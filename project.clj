@@ -7,7 +7,7 @@
             :test-paths ["test" "test-server"]
             :resource-paths ["resources/main"]
             :dependencies [[org.clojure/clojure "1.6.0"]
-                           [org.clojure/clojurescript "0.0-2311"]
+                           [org.clojure/clojurescript "0.0-2371"]
                            [org.clojure/core.async "0.1.319.0-6b1aca-alpha"]
                            [domina "1.0.2"]
                            [sablono "0.2.6"]
@@ -15,7 +15,7 @@
                            [io.pedestal/pedestal.service "0.3.0"]
                            [io.pedestal/pedestal.service-tools "0.3.0"]
                            [javax.servlet/javax.servlet-api "3.1.0" :scope "provided"]
-                           [datascript "0.4.1"]
+                           [datascript "0.4.2"]
                            [com.cemerick/clojurescript.test "0.3.1"]
                            [org.clojure/core.match "0.2.1"]
                            [com.palletops/pallet "0.8.0-RC.9"]
@@ -23,13 +23,13 @@
                            [com.palletops/upstart-crate "0.8.0-alpha.2"]
                            [com.palletops/java-crate "0.8.0-beta.6"]
                            [prismatic/schema "0.2.6"]
-                           [org.immutant/web "2.0.0-alpha1"]
+                           [org.immutant/web "2.0.0-alpha2"]
                            [enlive "1.1.5"]
                            [org.clojure/data.xml "0.0.8"]
                            [org.clojure/data.zip "0.1.1"]
                            [ewen/wreak "0.2.0-SNAPSHOT"]]
             :dev-dependencies [[lein-cljsbuild "1.0.3"]]
-            :plugins [[lein-immutant "2.0.0-alpha1"]
+            :plugins [[lein-immutant "2.0.0-alpha2"]
                       [com.cemerick/austin "0.1.5"]
                       [lein-pprint "1.1.1"]]
             :profiles {:dev {:plugins [[lein-cljsbuild "1.0.3"]]
@@ -38,7 +38,7 @@
                        :uberjar {:resource-paths ["resources/prod"]
                                   :aot :all}}
             :cljsbuild {:builds [{:id "dev"
-                                  :source-paths ["src-cljs" "/home/ewen/clojure/wreak/src-cljs" "/home/ewen/clojure/datascript/src"]
+                                  :source-paths ["src-cljs" "/home/ewen/clojure/wreak/src-cljs"]
                                   :compiler {
                                               :output-to "resources/dev/public/cljs/cle-usb.js"
                                               :output-dir "resources/dev/public/cljs/"
