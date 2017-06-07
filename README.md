@@ -15,11 +15,6 @@ Limitations
 * An android phone with root access or a kernel compiled with a keyboard driver is required.
 * A secure element is required (password based encryption could also be considered).
 
-Status
-======
-
-The application is currently under development. The GUI is regularly deployed [here](http://www.cle-usb.pw).
-
 References
 ----------
 [Exploiting Smart-Phone USB Connectivity For Fun And Profit](http://cs.gmu.edu/~astavrou/research/acsac10.pdf)
